@@ -2,14 +2,19 @@
  * renderer.js
  *
  * Manages the canvas render loop.
- * Composites: video frame → iMessage overlay → animated bubbles.
+ * Composites: background (video or image) → iMessage overlay → animated bubbles.
  *
  * Responsibilities:
  *   - Accept a parsed timeline (from Parser.parseScript)
  *   - Drive an rAF loop that advances a playhead (currentTime in seconds)
- *   - At each frame: draw video, draw chrome, draw visible bubbles/typing
+ *   - At each frame: draw background, draw chrome, draw visible bubbles/typing
  *   - Expose start(), stop(), reset(), seek()
  *   - Emit callbacks: onFrame(currentTime), onEnd()
+ *
+ * Background modes:
+ *   options.bgMode === 'video'  → draws video frame (center-cropped)
+ *   options.bgMode === 'image'  → draws static image (object-fit: cover)
+ *                                 + optional Ken Burns zoom/pan when options.kenBurns is true
  *
  * Usage:
  *   const r = new Renderer(canvas, video, timeline, options);
@@ -24,12 +29,16 @@ class Renderer {
    * @param {HTMLVideoElement}  video
    * @param {Array<Object>}     timeline  output of Parser.parseScript()
    * @param {Object}            options
-   *   options.scale           {number}   devicePixelRatio (default 1)
-   *   options.statusTime      {string}   override status bar time
+   *   options.scale            {number}   devicePixelRatio (default 1)
+   *   options.statusTime       {string}   override status bar time
    *   options.showCounterparty {boolean}
-   *   options.cpInitials      {string}
-   *   options.cpName          {string}
-   *   options.cpColor         {string}
+   *   options.cpInitials       {string}
+   *   options.cpName           {string}
+   *   options.cpColor          {string}
+   *   options.bgMode           {'video'|'image'}  default 'video'
+   *   options.bgImage          {HTMLImageElement} required when bgMode === 'image'
+   *   options.kenBurns         {boolean}  animate zoom+pan on image background
+   *   options.imageDuration    {number}   composition length in seconds (image mode)
    */
   constructor(canvas, video, timeline, options = {}) {
     this.canvas   = canvas;
@@ -92,15 +101,32 @@ class Renderer {
     };
   }
 
+  // ── Total composition duration ────────────────────────────────────────
+
+  _totalDuration() {
+    // Image mode: user-specified duration
+    if (this.options.bgMode === 'image' && this.options.imageDuration) {
+      return this.options.imageDuration;
+    }
+    // Video mode: derive from timeline (last event end + 2s buffer)
+    const last = this.timeline[this.timeline.length - 1];
+    return last ? last.endTime + 2 : 10;
+  }
+
   // ── Public control ───────────────────────────────────────────────────
 
   start() {
     if (this._running) return;
     this._computeLayout();
-    this._running  = true;
+    this._running   = true;
     this._startedAt = performance.now();
-    this.video.currentTime = 0;
-    this.video.play().catch(() => {});
+
+    // Only play video in video mode
+    if (this.options.bgMode !== 'image') {
+      this.video.currentTime = 0;
+      this.video.play().catch(() => {});
+    }
+
     this._rafId = requestAnimationFrame(this._loop.bind(this));
   }
 
@@ -108,7 +134,10 @@ class Renderer {
     this._running = false;
     if (this._rafId) cancelAnimationFrame(this._rafId);
     this._rafId = null;
-    this.video.pause();
+
+    if (this.options.bgMode !== 'image') {
+      this.video.pause();
+    }
   }
 
   reset() {
@@ -140,8 +169,7 @@ class Renderer {
     if (this.onFrame) this.onFrame(this.currentTime);
 
     // Check if done
-    const last = this.timeline[this.timeline.length - 1];
-    if (last && this.currentTime > last.endTime + 2) {
+    if (this.currentTime > this._totalDuration()) {
       this.stop();
       if (this.onEnd) this.onEnd();
       return;
@@ -171,20 +199,28 @@ class Renderer {
   }
 
   _fireEvent(ev) {
+    // Audio elements have ~250ms startup latency; play sounds this many ms
+    // before the bubble appears so they land together visually.
+    const SOUND_LEAD_MS = 240;
+
     switch (ev.type) {
       case 'message':
         if (ev.speaker === 'A') {
           // Auto-typing: ~50ms per character, min 0.5s, max 4s
           const typingDur = Math.min(4, Math.max(0.5, ev.text.length * 0.05));
           AudioEngine.playKeystrokeLoop(typingDur);
+          const bubbleDelay = (typingDur + 0.2) * 1000;
+          setTimeout(() => AudioEngine.playSent(), bubbleDelay - SOUND_LEAD_MS);
           setTimeout(() => {
             if (!this._running) return;
             this._visibleBubbles.push({ speaker: ev.speaker, text: ev.text });
-            AudioEngine.playSent();
-          }, (typingDur + 0.2) * 1000);
+          }, bubbleDelay);
         } else {
-          this._visibleBubbles.push({ speaker: ev.speaker, text: ev.text });
           AudioEngine.playReceived();
+          setTimeout(() => {
+            if (!this._running) return;
+            this._visibleBubbles.push({ speaker: ev.speaker, text: ev.text });
+          }, SOUND_LEAD_MS);
         }
         break;
 
@@ -207,28 +243,12 @@ class Renderer {
   // ── Drawing ──────────────────────────────────────────────────────────
 
   _draw() {
-    const { ctx, canvas, video, _layout: L, options } = this;
+    const { ctx, canvas, _layout: L, options } = this;
     if (!L) return;
     const { W, H, s } = L;
 
-    // 1. Video background — center-crop source to match 9:16 canvas
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    const canvasRatio = W / H;
-    const videoRatio  = vw / vh;
-    let sx, sy, sw, sh;
-    if (videoRatio > canvasRatio) {
-      sh = vh;
-      sw = Math.round(vh * canvasRatio);
-      sx = Math.round((vw - sw) / 2);
-      sy = 0;
-    } else {
-      sw = vw;
-      sh = Math.round(vw / canvasRatio);
-      sx = 0;
-      sy = Math.round((vh - sh) / 2);
-    }
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
+    // 1. Background (video or image)
+    this._drawBackground(W, H);
 
     // 2. Black scrim — opacity controlled by user (0 = none, 1 = solid black)
     const scrim = options.scrimOpacity || 0;
@@ -269,6 +289,122 @@ class Renderer {
     // 4. Message bubbles + typing indicator
     this._drawBubbles();
   }
+
+  // ── Background rendering ──────────────────────────────────────────────
+
+  _drawBackground(W, H) {
+    const { options } = this;
+
+    if (options.bgMode === 'image') {
+      const img = options.bgImage;
+      if (!img || !img.complete || !img.naturalWidth) return;
+
+      if (options.kenBurns) {
+        this._drawImageKenBurns(img, W, H);
+      } else {
+        this._drawImageCover(img, W, H);
+      }
+    } else {
+      // Video background — center-crop source to match canvas aspect ratio
+      const { video } = this;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (!vw || !vh) return;
+
+      const { ctx } = this;
+      const canvasRatio = W / H;
+      const videoRatio  = vw / vh;
+      let sx, sy, sw, sh;
+      if (videoRatio > canvasRatio) {
+        sh = vh;
+        sw = Math.round(vh * canvasRatio);
+        sx = Math.round((vw - sw) / 2);
+        sy = 0;
+      } else {
+        sw = vw;
+        sh = Math.round(vw / canvasRatio);
+        sx = 0;
+        sy = Math.round((vh - sh) / 2);
+      }
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
+    }
+  }
+
+  /**
+   * Draw an image scaled to cover the full canvas (object-fit: cover behavior).
+   * Centers the crop on the image.
+   */
+  _drawImageCover(img, W, H) {
+    const { ctx } = this;
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+    const canvasRatio = W / H;
+    const imgRatio    = iw / ih;
+
+    let sx, sy, sw, sh;
+    if (imgRatio > canvasRatio) {
+      // Image is wider — use full height, crop width
+      sh = ih;
+      sw = Math.round(ih * canvasRatio);
+      sx = Math.round((iw - sw) / 2);
+      sy = 0;
+    } else {
+      // Image is taller — use full width, crop height
+      sw = iw;
+      sh = Math.round(iw / canvasRatio);
+      sx = 0;
+      sy = Math.round((ih - sh) / 2);
+    }
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
+  }
+
+  /**
+   * Draw an image with the Ken Burns effect: a slow cinematic zoom (100%↔115%)
+   * combined with an optional pan, animated over the full composition duration.
+   *
+   * options.kbZoom — 'in' (default): 1.0→1.15 | 'out': 1.15→1.0
+   * options.kbPan  — 'none' (default) | 'right' | 'left' | 'down' | 'up'
+   *
+   * Pan uses up to 80% of the available headroom at each frame, so edges
+   * are never exposed regardless of zoom direction.
+   */
+  _drawImageKenBurns(img, W, H) {
+    const { ctx, options } = this;
+    const duration = options.imageDuration || 30;
+    const kbZoom   = options.kbZoom || 'in';
+    const kbPan    = options.kbPan  || 'none';
+
+    // Progress 0→1 over the full duration (clamped)
+    const progress = Math.min(Math.max(this.currentTime, 0) / duration, 1);
+
+    // Scale: zoom in (1.0→1.15) or zoom out (1.15→1.0)
+    const scale = kbZoom === 'out'
+      ? 1.15 - 0.15 * progress
+      : 1 + 0.15 * progress;
+
+    // Available headroom at current scale — the safe translation per side
+    const headroomX = (scale - 1) * W / 2;
+    const headroomY = (scale - 1) * H / 2;
+    const PAN = 0.8; // fraction of headroom to use
+
+    // panX/panY: positive moves canvas origin left/up → viewport sees right/bottom side
+    let panX = 0, panY = 0;
+    switch (kbPan) {
+      case 'right': panX =  headroomX * PAN; break;
+      case 'left':  panX = -headroomX * PAN; break;
+      case 'down':  panY =  headroomY * PAN; break;
+      case 'up':    panY = -headroomY * PAN; break;
+    }
+
+    ctx.save();
+    ctx.translate(W / 2 - panX, H / 2 - panY);
+    ctx.scale(scale, scale);
+    ctx.translate(-W / 2, -H / 2);
+    this._drawImageCover(img, W, H);
+    ctx.restore();
+  }
+
+  // ── Bubble rendering ──────────────────────────────────────────────────
 
   _drawBubbles() {
     const { ctx, _layout: L } = this;

@@ -7,12 +7,15 @@
  * Input format (one token per line, whitespace-flexible):
  *   A: message text   → sender bubble  (blue, right)
  *   B: message text   → receiver bubble (gray, left)
- *   [2s]              → wait 2 seconds before next event
- *   [typing:3s]       → show typing indicator for 3 seconds, then next event
  *
- * Tokens on the same line are processed left-to-right, so:
- *   A: Hey! [2s]
- * means: show "Hey!" bubble, then wait 2 s before the next line's event.
+ * Bracket tokens (inline or standalone):
+ *   [d:2]             → delay 2 s        (s suffix optional)
+ *   [t:3]             → typing 3 s       (s suffix optional)
+ *   [d:2,t:3]         → delay 2 s + typing 3 s (either key may be omitted)
+ *
+ * Legacy syntax (still supported):
+ *   [2s]              → delay 2 s
+ *   [typing:3s]       → typing 3 s
  *
  * Output — array of event objects (in chronological order):
  *
@@ -27,6 +30,24 @@ const Parser = (() => {
   const RE_MESSAGE = /^([AB]):\s*(.+)/;
   const RE_DELAY   = /\[(\d+(?:\.\d+)?)s\]/g;
   const RE_TYPING  = /\[typing:(\d+(?:\.\d+)?)s\]/g;
+
+  // New unified syntax: [d:N] [t:N] [d:N,t:N] [t:N,d:N] — 's' suffix optional
+  const RE_UNIFIED = /\[[dt]:\d+(?:\.\d+)?s?(?:,\s*[dt]:\d+(?:\.\d+)?s?)?\]/g;
+
+  /**
+   * Parse a unified token's content (e.g. "d:2,t:3s") into {d, t} numbers.
+   * Unknown or absent keys are null.
+   */
+  function _parseUnifiedToken(raw) {
+    // raw is the full bracket, e.g. "[d:2,t:3s]"
+    const inner = raw.slice(1, -1); // strip [ ]
+    const result = { d: null, t: null };
+    for (const part of inner.split(',')) {
+      const m = part.trim().match(/^([dt]):(\d+(?:\.\d+)?)s?$/);
+      if (m) result[m[1]] = parseFloat(m[2]);
+    }
+    return result;
+  }
 
   /**
    * Parse raw script text → array of event objects.
@@ -64,36 +85,50 @@ const Parser = (() => {
       const text = rest
         .replace(/\[typing:\d+(?:\.\d+)?s\]/g, '')
         .replace(/\[\d+(?:\.\d+)?s\]/g, '')
+        .replace(/\[[dt]:\d+(?:\.\d+)?s?(?:,\s*[dt]:\d+(?:\.\d+)?s?)?\]/g, '')
         .replace(/\s+/g, ' ')   // collapse any double-spaces left by stripping
         .trim();
 
-      // Determine if there is a typing indicator preceding this message
-      // Reset lastIndex before exec loop
+      // ── Typing events (appear before the message) ──
+
+      // Legacy [typing:Ns]
       RE_TYPING.lastIndex = 0;
       const typingMatch = RE_TYPING.exec(rest);
       if (typingMatch) {
-        events.push({
-          type:     'typing',
-          speaker,
-          duration: parseFloat(typingMatch[1]),
-        });
+        events.push({ type: 'typing', speaker, duration: parseFloat(typingMatch[1]) });
+      }
+
+      // Unified [t:N] / [d:N,t:N]
+      RE_UNIFIED.lastIndex = 0;
+      let uMatch;
+      while ((uMatch = RE_UNIFIED.exec(rest)) !== null) {
+        const { t } = _parseUnifiedToken(uMatch[0]);
+        if (t !== null) {
+          events.push({ type: 'typing', speaker, duration: t });
+        }
       }
 
       if (text) {
         events.push({ type: 'message', speaker, text });
       }
 
-      // Collect any plain delay tokens (non-typing) after the message
+      // ── Delay events (appear after the message) ──
+
+      // Legacy [Ns]
       RE_DELAY.lastIndex = 0;
       let delayMatch;
       while ((delayMatch = RE_DELAY.exec(rest)) !== null) {
-        // Make sure this match isn't inside a [typing:…] bracket
-        const raw = delayMatch[0];
-        if (!raw.includes('typing')) {
-          events.push({
-            type:     'delay',
-            duration: parseFloat(delayMatch[1]),
-          });
+        if (!delayMatch[0].includes('typing')) {
+          events.push({ type: 'delay', duration: parseFloat(delayMatch[1]) });
+        }
+      }
+
+      // Unified [d:N] / [d:N,t:N]
+      RE_UNIFIED.lastIndex = 0;
+      while ((uMatch = RE_UNIFIED.exec(rest)) !== null) {
+        const { d } = _parseUnifiedToken(uMatch[0]);
+        if (d !== null) {
+          events.push({ type: 'delay', duration: d });
         }
       }
 
@@ -110,20 +145,25 @@ const Parser = (() => {
     RE_TYPING.lastIndex = 0;
     let m;
     while ((m = RE_TYPING.exec(line)) !== null) {
-      events.push({
-        type:     'typing',
-        speaker:  speaker || 'B',
-        duration: parseFloat(m[1]),
-      });
+      events.push({ type: 'typing', speaker: speaker || 'B', duration: parseFloat(m[1]) });
     }
 
     RE_DELAY.lastIndex = 0;
     while ((m = RE_DELAY.exec(line)) !== null) {
       if (!m[0].includes('typing')) {
-        events.push({
-          type:     'delay',
-          duration: parseFloat(m[1]),
-        });
+        events.push({ type: 'delay', duration: parseFloat(m[1]) });
+      }
+    }
+
+    // Unified [d:N] / [t:N] / [d:N,t:N]
+    RE_UNIFIED.lastIndex = 0;
+    while ((m = RE_UNIFIED.exec(line)) !== null) {
+      const { d, t } = _parseUnifiedToken(m[0]);
+      if (t !== null) {
+        events.push({ type: 'typing', speaker: speaker || 'B', duration: t });
+      }
+      if (d !== null) {
+        events.push({ type: 'delay', duration: d });
       }
     }
   }

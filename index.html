@@ -14,10 +14,47 @@
     <aside id="panel">
       <h1>iMessage Overlay</h1>
 
-      <!-- Video upload -->
+      <!-- Background (video or image) -->
       <section class="control-group">
-        <label for="videoUpload">Background Video</label>
-        <input type="file" id="videoUpload" accept="video/*" />
+        <label>Background</label>
+        <!-- Mode tabs -->
+        <div class="bg-type-tabs">
+          <label class="bg-tab active" id="bgTabVideo">
+            <input type="radio" name="bgType" value="video" checked /> Video
+          </label>
+          <label class="bg-tab" id="bgTabImage">
+            <input type="radio" name="bgType" value="image" /> Image
+          </label>
+        </div>
+        <!-- Video upload -->
+        <div id="videoUploadWrap">
+          <input type="file" id="videoUpload" accept="video/*" />
+        </div>
+        <!-- Image upload + Ken Burns + Duration -->
+        <div id="imageUploadWrap" class="hidden">
+          <input type="file" id="imageUpload" accept="image/*" />
+          <label class="toggle-row" style="margin-top:6px;">
+            <input type="checkbox" id="kenBurns" />
+            Ken Burns Effect
+          </label>
+          <div id="kenBurnsOptions" class="sub-options hidden">
+            <label for="kbZoom">Zoom</label>
+            <select id="kbZoom">
+              <option value="in">In</option>
+              <option value="out">Out</option>
+            </select>
+            <label for="kbPan">Pan</label>
+            <select id="kbPan">
+              <option value="none">None</option>
+              <option value="right">Right</option>
+              <option value="left">Left</option>
+              <option value="down">Down</option>
+              <option value="up">Up</option>
+            </select>
+          </div>
+          <label class="setting-row-label" for="imageDuration" style="margin-top:6px;">Duration (seconds)</label>
+          <input type="number" id="imageDuration" min="1" max="600" step="1" value="30" />
+        </div>
         <p class="hint">Auto-cropped to 9:16.</p>
       </section>
 
@@ -94,15 +131,17 @@
           <div class="emoji-grid" id="emojiGrid"></div>
         </div>
 
-        <textarea id="scriptInput" rows="10" placeholder="A: Hey! [2s]
-B: Hey back! [typing:3s]
-A: How's it going? [1s]
-B: Pretty good! [typing:2s]"></textarea>
+        <textarea id="scriptInput" rows="10" placeholder="A: Hey! [d:2]
+B: Hey back! [t:3]
+A: How's it going? [d:1]
+B: Pretty good! [d:1,t:2]"></textarea>
         <p class="hint">
           <strong>A</strong> = sender (blue, right) &nbsp;·&nbsp;
           <strong>B</strong> = receiver (gray, left)<br />
-          <code>[2s]</code> delay &nbsp;·&nbsp;
-          <code>[typing:3s]</code> typing indicator
+          <code>[d:2]</code> delay &nbsp;·&nbsp;
+          <code>[t:3]</code> typing &nbsp;·&nbsp;
+          <code>[d:2,t:3]</code> both<br />
+          Legacy: <code>[2s]</code> &nbsp;·&nbsp; <code>[typing:3s]</code>
         </p>
       </section>
 
@@ -125,7 +164,7 @@ B: Pretty good! [typing:2s]"></textarea>
       <div id="canvasWrap">
         <canvas id="mainCanvas"></canvas>
         <div id="placeholder">
-          <span>Upload a video and press Preview</span>
+          <span>Upload a background and press Preview</span>
         </div>
       </div>
     </main>

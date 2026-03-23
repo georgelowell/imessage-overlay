@@ -4,8 +4,8 @@
  * Main controller. Wires together the DOM, Parser, Renderer, and Recorder.
  *
  * Responsibilities:
- *   - Handle video file upload → size canvas to video dimensions
- *   - Read UI options (counterparty, time override, script)
+ *   - Handle video or image file upload → size canvas to 9:16
+ *   - Read UI options (counterparty, time override, script, Ken Burns, etc.)
  *   - On "Preview": parse script, build renderer, start playback
  *   - On "Export": attach recorder to renderer, run, download file
  *   - On "Stop": halt everything cleanly
@@ -14,7 +14,17 @@
 (function () {
 
   // ── DOM refs ────────────────────────────────────────────────────────
+  const bgTabVideo         = document.getElementById('bgTabVideo');
+  const bgTabImage         = document.getElementById('bgTabImage');
+  const videoUploadWrap    = document.getElementById('videoUploadWrap');
+  const imageUploadWrap    = document.getElementById('imageUploadWrap');
   const videoUpload        = document.getElementById('videoUpload');
+  const imageUpload        = document.getElementById('imageUpload');
+  const kenBurnsChk        = document.getElementById('kenBurns');
+  const kenBurnsOptions    = document.getElementById('kenBurnsOptions');
+  const kbZoomSelect       = document.getElementById('kbZoom');
+  const kbPanSelect        = document.getElementById('kbPan');
+  const imageDurationInput = document.getElementById('imageDuration');
   const settingsToggle     = document.getElementById('settingsToggle');
   const settingsBody       = document.getElementById('settingsBody');
   const settingsChevron    = document.getElementById('settingsChevron');
@@ -44,9 +54,33 @@
   const sourceVideo        = document.getElementById('sourceVideo');
 
   // ── State ────────────────────────────────────────────────────────────
+  let bgMode        = 'video';  // 'video' | 'image'
   let videoReady    = false;
+  let imageReady    = false;
+  let _uiMode       = 'idle';
   let activeRenderer = null;
   let activeRecorder = null;
+
+  // Image element used as texture source in image mode
+  const bgImage = new Image();
+
+  // ── Background mode tabs ─────────────────────────────────────────────
+
+  document.querySelectorAll('input[name="bgType"]').forEach(radio => {
+    radio.addEventListener('change', e => {
+      bgMode = e.target.value;
+      _updateBgModeUI();
+      _refreshButtons();
+    });
+  });
+
+  function _updateBgModeUI() {
+    const isImage = bgMode === 'image';
+    bgTabVideo.classList.toggle('active', !isImage);
+    bgTabImage.classList.toggle('active', isImage);
+    videoUploadWrap.classList.toggle('hidden', isImage);
+    imageUploadWrap.classList.toggle('hidden', !isImage);
+  }
 
   // ── Video upload ─────────────────────────────────────────────────────
 
@@ -61,9 +95,25 @@
     sourceVideo.addEventListener('loadedmetadata', () => {
       _sizeCanvas(sourceVideo.videoWidth, sourceVideo.videoHeight);
       videoReady = true;
-      btnExport.disabled = false;
       placeholder.classList.add('hidden');
+      _refreshButtons();
     }, { once: true });
+  });
+
+  // ── Image upload ─────────────────────────────────────────────────────
+
+  imageUpload.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const url = URL.createObjectURL(file);
+    bgImage.onload = () => {
+      _sizeCanvasFromImage(bgImage);
+      imageReady = true;
+      placeholder.classList.add('hidden');
+      _refreshButtons();
+    };
+    bgImage.src = url;
   });
 
   /**
@@ -85,17 +135,48 @@
       cropH = Math.round(vw / TARGET);
     }
 
+    _applyCanvasSize(cropW, cropH);
+  }
+
+  /**
+   * Size the canvas from an image, cropped to 9:16, capped at 1080×1920.
+   */
+  function _sizeCanvasFromImage(img) {
+    const TARGET  = 9 / 16;
+    const MAX_H   = 1920;
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+
+    let cropW, cropH;
+    if (iw / ih > TARGET) {
+      cropH = ih;
+      cropW = Math.round(ih * TARGET);
+    } else {
+      cropW = iw;
+      cropH = Math.round(iw / TARGET);
+    }
+
+    // Cap at 1080×1920 to avoid enormous canvases
+    if (cropH > MAX_H) {
+      cropW = Math.round(cropW * MAX_H / cropH);
+      cropH = MAX_H;
+    }
+
+    _applyCanvasSize(cropW, cropH);
+  }
+
+  function _applyCanvasSize(cropW, cropH) {
     canvas.width  = cropW;
     canvas.height = cropH;
 
     // Scale canvas element to fit in the preview area
-    const wrap  = document.getElementById('canvasWrap');
     const areaW = document.getElementById('previewArea').clientWidth  - 40;
     const areaH = document.getElementById('previewArea').clientHeight - 40;
     const ratio = Math.min(areaW / cropW, areaH / cropH, 1);
 
     canvas.style.width  = Math.round(cropW * ratio) + 'px';
     canvas.style.height = Math.round(cropH * ratio) + 'px';
+    const wrap = document.getElementById('canvasWrap');
     wrap.style.width    = canvas.style.width;
     wrap.style.height   = canvas.style.height;
   }
@@ -196,6 +277,12 @@
     counterpartyOpts.classList.toggle('hidden', !showCounterparty.checked);
   });
 
+  // ── Ken Burns sub-options toggle ─────────────────────────────────────
+
+  kenBurnsChk.addEventListener('change', () => {
+    kenBurnsOptions.classList.toggle('hidden', !kenBurnsChk.checked);
+  });
+
   // ── Collect options ──────────────────────────────────────────────────
 
   function _getOptions() {
@@ -210,14 +297,33 @@
       cpInitials:       cpInitials.value.trim() || 'JD',
       cpName:           cpName.value.trim()     || 'John',
       cpColor:          cpColor.value,
+      // Background
+      bgMode:           bgMode,
+      bgImage:          bgMode === 'image' ? bgImage : null,
+      kenBurns:         kenBurnsChk.checked,
+      kbZoom:           kbZoomSelect.value,
+      kbPan:            kbPanSelect.value,
+      imageDuration:    parseFloat(imageDurationInput.value) || 30,
     };
+  }
+
+  // ── Check if media is ready ───────────────────────────────────────────
+
+  function _mediaReady() {
+    return (bgMode === 'video' && videoReady) || (bgMode === 'image' && imageReady);
+  }
+
+  function _refreshButtons() {
+    if (_uiMode === 'idle') {
+      btnExport.disabled = !_mediaReady();
+    }
   }
 
   // ── Preview ──────────────────────────────────────────────────────────
 
   btnPreview.addEventListener('click', () => {
-    if (!videoReady) {
-      alert('Please upload a video first.');
+    if (!_mediaReady()) {
+      alert(bgMode === 'video' ? 'Please upload a video first.' : 'Please upload an image first.');
       return;
     }
 
@@ -255,8 +361,8 @@
   // ── Export ───────────────────────────────────────────────────────────
 
   btnExport.addEventListener('click', () => {
-    if (!videoReady) {
-      alert('Please upload a video first.');
+    if (!_mediaReady()) {
+      alert(bgMode === 'video' ? 'Please upload a video first.' : 'Please upload an image first.');
       return;
     }
 
@@ -276,11 +382,17 @@
       return;
     }
 
-    // Estimate total duration: last event endTime + 2 s buffer
-    const last     = timeline[timeline.length - 1];
-    const duration = last ? last.endTime + 2 : 10;
-
     const opts = _getOptions();
+
+    // Duration: use imageDuration for image mode; derive from timeline for video mode
+    let duration;
+    if (opts.bgMode === 'image') {
+      duration = opts.imageDuration;
+    } else {
+      const last = timeline[timeline.length - 1];
+      duration = last ? last.endTime + 2 : 10;
+    }
+
     activeRenderer = new Renderer(canvas, sourceVideo, timeline, opts);
     activeRecorder = new Recorder(canvas, {
       fps:          30,
@@ -335,8 +447,9 @@
    * @param {'idle'|'playing'|'exporting'} mode
    */
   function _setMode(mode) {
+    _uiMode = mode;
     btnPreview.disabled = (mode !== 'idle');
-    btnExport.disabled  = (mode !== 'idle') || !videoReady;
+    btnExport.disabled  = (mode !== 'idle') || !_mediaReady();
     btnStop.hidden      = (mode === 'idle');
 
     if (mode === 'exporting') {
@@ -362,7 +475,7 @@
   // ── Init ─────────────────────────────────────────────────────────────
 
   _setMode('idle');
-  btnExport.disabled = true;   // needs video first
+  btnExport.disabled = true;   // needs media first
 
   console.log('[app] iMessage Overlay ready.');
 
