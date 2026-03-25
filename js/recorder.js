@@ -15,7 +15,7 @@
  *   onConvertProgress(ratio 0–1) — fires during FFmpeg transcoding phase
  *   onConvertError(err)          — fires if FFmpeg fails (fallback to WebM)
  *
- * FFmpeg globals (loaded via CDN in index.html):
+ * FFmpeg globals (loaded from assets/ffmpeg/ in index.html):
  *   FFmpegWASM.FFmpeg  — the FFmpeg class (@ffmpeg/ffmpeg UMD build)
  *
  * @ffmpeg/util is NOT loaded from CDN; the two helpers we need are inlined
@@ -59,16 +59,11 @@ async function _loadFFmpeg() {
       console.log('[Recorder] Downloading FFmpeg core (~25 MB, first export only)…');
       const ffmpeg = new FFmpeg();
 
-      // Load the single-threaded core (no SharedArrayBuffer / COOP headers required)
+      // Load the single-threaded core from local assets (avoids CDN CORS errors on GitHub Pages)
+      const base = new URL('assets/ffmpeg/', location.href).href;
       await ffmpeg.load({
-        coreURL: await _toBlobURL(
-          'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-          'text/javascript'
-        ),
-        wasmURL: await _toBlobURL(
-          'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
-          'application/wasm'
-        ),
+        coreURL: await _toBlobURL(`${base}ffmpeg-core.js`,   'text/javascript'),
+        wasmURL: await _toBlobURL(`${base}ffmpeg-core.wasm`, 'application/wasm'),
       });
 
       _ffmpegInstance = ffmpeg;

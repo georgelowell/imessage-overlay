@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Required for SharedArrayBuffer / FFmpeg.wasm multi-thread support -->
+  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin" />
+  <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp" />
   <title>iMessage Video Overlay</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
@@ -174,8 +177,8 @@ B: Pretty good! [d:1,t:2]"></textarea>
   <!-- Hidden video element used as texture source -->
   <video id="sourceVideo" playsinline></video>
 
-  <!-- FFmpeg.wasm — used in recorder.js to transcode WebM → MP4 -->
-  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/umd/ffmpeg.js"></script>
+  <!-- FFmpeg.wasm — used in recorder.js to transcode WebM → MP4 (local copy, no CDN CORS issues) -->
+  <script src="assets/ffmpeg/ffmpeg.js"></script>
 
   <script src="js/parser.js"></script>
   <script src="js/audio.js"></script>

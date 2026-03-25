@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- **FFmpeg.wasm CORS error on GitHub Pages**: Downloaded all three FFmpeg.wasm files (`ffmpeg.js`, `ffmpeg-core.js`, `ffmpeg-core.wasm`) into `assets/ffmpeg/` and updated `index.html` and `recorder.js` to load them locally instead of from unpkg CDN.
+- Added `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` meta tags to `index.html` for SharedArrayBuffer/FFmpeg.wasm compatibility.
+
 ### Added
 - **True MP4 export via FFmpeg.wasm**: After MediaRecorder finishes capturing WebM, `recorder.js` automatically transcodes to H.264/AAC MP4 using `@ffmpeg/ffmpeg@0.12.6` and `@ffmpeg/core@0.12.6` (single-threaded, no SharedArrayBuffer required). The downloaded file is now `imessage-overlay.mp4`.
 - **Two-phase export progress**: The status bar now shows "Exporting… X%" during recording, then "Converting to MP4… X%" during FFmpeg transcoding.
