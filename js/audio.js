@@ -55,7 +55,19 @@ const AudioEngine = (() => {
     _receivedAudio.play().catch(() => {});
   }
 
+  /**
+   * Prime all audio elements so their first real play has no startup delay.
+   * Call once on the first user gesture (Preview / Export click).
+   */
+  function warmUp() {
+    [_typingAudio, _sentAudio, _receivedAudio].forEach(a => {
+      const vol = a.volume;
+      a.volume = 0;
+      a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = vol; }).catch(() => {});
+    });
+  }
+
   // Public API
-  return { playKeystrokeLoop, playSent, playReceived };
+  return { warmUp, playKeystrokeLoop, playSent, playReceived };
 
 })();

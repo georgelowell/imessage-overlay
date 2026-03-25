@@ -118,10 +118,12 @@
 
   /**
    * Size the canvas to a 9:16 center-crop of the video.
-   * Crops the minimum amount necessary to reach 9:16.
+   * Crops the minimum amount necessary to reach 9:16, then scales up
+   * to a minimum of 1080×1920 so Instagram doesn't upscale a low-res source.
    */
   function _sizeCanvas(vw, vh) {
     const TARGET = 9 / 16;
+    const MIN_W  = 1080;
     const videoRatio = vw / vh;
 
     let cropW, cropH;
@@ -133,6 +135,12 @@
       // Video is taller than 9:16 — use full width, crop height
       cropW = vw;
       cropH = Math.round(vw / TARGET);
+    }
+
+    // Scale up if source is below 1080px wide (Instagram minimum)
+    if (cropW < MIN_W) {
+      cropH = Math.round(MIN_W / TARGET);
+      cropW = MIN_W;
     }
 
     _applyCanvasSize(cropW, cropH);
@@ -322,6 +330,7 @@
   // ── Preview ──────────────────────────────────────────────────────────
 
   btnPreview.addEventListener('click', () => {
+    AudioEngine.warmUp();
     if (!_mediaReady()) {
       alert(bgMode === 'video' ? 'Please upload a video first.' : 'Please upload an image first.');
       return;
@@ -361,6 +370,7 @@
   // ── Export ───────────────────────────────────────────────────────────
 
   btnExport.addEventListener('click', () => {
+    AudioEngine.warmUp();
     if (!_mediaReady()) {
       alert(bgMode === 'video' ? 'Please upload a video first.' : 'Please upload an image first.');
       return;
@@ -402,13 +412,24 @@
         exportProgress.value = Math.round(ratio * 100);
         exportLabel.textContent = `Exporting… ${Math.round(ratio * 100)}%`;
       },
+      onConvertProgress: ratio => {
+        exportProgress.value = Math.round(ratio * 100);
+        exportLabel.textContent = `Converting to MP4… ${Math.round(ratio * 100)}%`;
+      },
+      onConvertError: () => {
+        // FFmpeg failed; onStop will still fire with the WebM fallback
+        exportLabel.textContent = 'MP4 conversion failed — saving as WebM…';
+      },
     });
 
     activeRecorder.onStop = (url, ext) => {
       Recorder.download(url, ext, 'imessage-overlay');
-      _setMode('idle');
-      exportLabel.textContent = 'Export complete!';
-      setTimeout(() => exportStatus.classList.add('hidden'), 3000);
+      exportLabel.textContent = ext === 'mp4' ? 'Export complete!' : 'Saved as WebM (MP4 conversion failed).';
+      // Keep status visible briefly before hiding
+      setTimeout(() => {
+        _setMode('idle');
+        setTimeout(() => exportStatus.classList.add('hidden'), 100);
+      }, 2500);
     };
 
     activeRenderer.onEnd = () => {

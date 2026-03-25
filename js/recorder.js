@@ -1,40 +1,86 @@
 /**
  * recorder.js
  *
- * Wraps the MediaRecorder API to capture the canvas output as an MP4/WebM.
+ * Wraps the MediaRecorder API to capture the canvas output, then transcodes
+ * the resulting WebM to MP4 (H.264 / AAC) via FFmpeg.wasm.
  *
  * Flow:
- *   1. Caller creates a Recorder, passing the canvas and an AudioContext
- *      destination (optional — for baking in audio).
+ *   1. Caller creates a Recorder, passing the canvas.
  *   2. Call recorder.start() to begin capture.
- *   3. Call recorder.stop() → returns a Blob URL for the exported video.
+ *   3. Call recorder.stop() — MediaRecorder stops, then FFmpeg transcodes.
+ *   4. onStop(url, ext, blob) fires with the final MP4 (or WebM fallback).
  *
- * Note on format:
- *   MediaRecorder support varies by browser:
- *     Chrome  → video/webm;codecs=vp9 (best quality)
- *     Firefox → video/webm;codecs=vp8
- *   We try VP9 → VP8 → default in order.
- *   After download, the file is a .webm; rename to .mp4 works in most players,
- *   or users can convert with ffmpeg.
+ * Callbacks in options:
+ *   onProgress(ratio 0–1)        — fires during MediaRecorder capture phase
+ *   onConvertProgress(ratio 0–1) — fires during FFmpeg transcoding phase
+ *   onConvertError(err)          — fires if FFmpeg fails (fallback to WebM)
+ *
+ * FFmpeg globals (loaded via CDN in index.html):
+ *   FFmpegWASM.FFmpeg  — the FFmpeg class
+ *   FFmpegUtil.toBlobURL, FFmpegUtil.fetchFile — helpers
  */
+
+// ── FFmpeg singleton ──────────────────────────────────────────────────────────
+// Loaded once on first export; reused on subsequent exports.
+
+let _ffmpegInstance = null;
+let _ffmpegLoadPromise = null;
+
+async function _loadFFmpeg() {
+  if (_ffmpegInstance) return _ffmpegInstance;
+
+  // Coalesce concurrent calls into a single load
+  if (!_ffmpegLoadPromise) {
+    _ffmpegLoadPromise = (async () => {
+      const { FFmpeg } = FFmpegWASM;           // from @ffmpeg/ffmpeg UMD
+      const { toBlobURL } = FFmpegUtil;         // from @ffmpeg/util UMD
+
+      const ffmpeg = new FFmpeg();
+
+      // Load the single-threaded core (no SharedArrayBuffer required)
+      await ffmpeg.load({
+        coreURL: await toBlobURL(
+          'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+          'text/javascript'
+        ),
+        wasmURL: await toBlobURL(
+          'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
+          'application/wasm'
+        ),
+      });
+
+      _ffmpegInstance = ffmpeg;
+      console.log('[Recorder] FFmpeg.wasm loaded.');
+      return ffmpeg;
+    })();
+  }
+
+  return _ffmpegLoadPromise;
+}
+
+// ── Recorder class ────────────────────────────────────────────────────────────
 
 class Recorder {
 
   /**
    * @param {HTMLCanvasElement} canvas
    * @param {Object}            options
-   *   options.fps          {number}   target framerate (default 30)
-   *   options.videoBitrate {number}   bps (default 8_000_000)
-   *   options.onProgress   {Function} (ratio 0–1) → void, called periodically
-   *   options.duration     {number}   expected duration in seconds (for progress)
+   *   options.fps              {number}   target framerate (default 30)
+   *   options.videoBitrate     {number}   bps (default 8_000_000)
+   *   options.duration         {number}   expected duration in seconds (for progress)
+   *   options.onProgress       {Function} (ratio 0–1) recording phase progress
+   *   options.onConvertProgress{Function} (ratio 0–1) FFmpeg transcoding progress
+   *   options.onConvertError   {Function} (err) called if transcoding fails
    */
   constructor(canvas, options = {}) {
     this.canvas  = canvas;
     this.options = {
-      fps:          options.fps          || 30,
-      videoBitrate: options.videoBitrate || 8_000_000,
-      onProgress:   options.onProgress   || null,
-      duration:     options.duration     || 0,
+      fps:               options.fps               || 30,
+      videoBitrate:      options.videoBitrate       || 8_000_000,
+      duration:          options.duration           || 0,
+      onProgress:        options.onProgress         || null,
+      onConvertProgress: options.onConvertProgress  || null,
+      onConvertError:    options.onConvertError      || null,
     };
 
     this._mediaRecorder = null;
@@ -43,7 +89,7 @@ class Recorder {
     this._startTime     = null;
     this._progressTimer = null;
 
-    this.onStop = null;  // (blobUrl: string) => void
+    this.onStop = null;  // (blobUrl: string, ext: string, blob: Blob) => void
   }
 
   // ── MIME type selection ───────────────────────────────────────────────
@@ -65,7 +111,6 @@ class Recorder {
 
   /**
    * Begin recording the canvas.
-   * @returns {void}
    */
   start() {
     if (this._mediaRecorder) this._cleanup();
@@ -88,7 +133,7 @@ class Recorder {
     this._mediaRecorder.start(100);  // collect data every 100 ms
     this._startTime = performance.now();
 
-    // Drive progress updates
+    // Drive recording-phase progress bar
     if (this.options.onProgress && this.options.duration > 0) {
       this._progressTimer = setInterval(() => {
         const elapsed = (performance.now() - this._startTime) / 1000;
@@ -101,7 +146,7 @@ class Recorder {
   }
 
   /**
-   * Stop recording and trigger finalization.
+   * Stop recording; triggers _finalize → FFmpeg transcoding → onStop.
    */
   stop() {
     if (!this._mediaRecorder || this._mediaRecorder.state === 'inactive') return;
@@ -111,18 +156,80 @@ class Recorder {
 
   // ── Internal ─────────────────────────────────────────────────────────
 
-  _finalize() {
-    const mime    = this._mediaRecorder.mimeType || 'video/webm';
-    const blob    = new Blob(this._chunks, { type: mime });
-    const url     = URL.createObjectURL(blob);
-    const ext     = mime.includes('mp4') ? 'mp4' : 'webm';
+  /**
+   * Called when MediaRecorder finishes. Builds the WebM blob, then hands it
+   * to FFmpeg for transcoding to MP4. Falls back to WebM on any error.
+   */
+  async _finalize() {
+    const mime     = this._mediaRecorder.mimeType || 'video/webm';
+    const webmBlob = new Blob(this._chunks, { type: mime });
 
-    console.log(`[Recorder] Done. Size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
+    console.log(`[Recorder] WebM captured. Size: ${(webmBlob.size / 1024 / 1024).toFixed(2)} MB`);
 
+    // Recording phase complete
     if (this.options.onProgress) this.options.onProgress(1);
-    if (this.onStop) this.onStop(url, ext, blob);
+
+    // Attempt FFmpeg transcoding → MP4
+    try {
+      const mp4Blob = await this._transcodeToMp4(webmBlob);
+      const url     = URL.createObjectURL(mp4Blob);
+      if (this.onStop) this.onStop(url, 'mp4', mp4Blob);
+    } catch (err) {
+      // Non-fatal: fall back to the original WebM
+      console.error('[Recorder] FFmpeg transcoding failed; falling back to WebM.', err);
+      if (this.options.onConvertError) this.options.onConvertError(err);
+      const url = URL.createObjectURL(webmBlob);
+      if (this.onStop) this.onStop(url, 'webm', webmBlob);
+    }
 
     this._cleanup();
+  }
+
+  /**
+   * Transcode a WebM Blob to MP4 (H.264 / AAC) using FFmpeg.wasm.
+   * @param   {Blob}   webmBlob
+   * @returns {Promise<Blob>} MP4 blob
+   */
+  async _transcodeToMp4(webmBlob) {
+    const { fetchFile } = FFmpegUtil;
+    const ffmpeg = await _loadFFmpeg();
+
+    // Wire up transcoding-phase progress
+    const onProgress = ({ progress }) => {
+      if (this.options.onConvertProgress) {
+        this.options.onConvertProgress(Math.min(1, Math.max(0, progress)));
+      }
+    };
+    ffmpeg.on('progress', onProgress);
+
+    try {
+      // Write input
+      await ffmpeg.writeFile('input.webm', await fetchFile(webmBlob));
+
+      // Transcode: H.264 video + AAC audio, web-optimised
+      await ffmpeg.exec([
+        '-i',        'input.webm',
+        '-c:v',      'libx264',
+        '-preset',   'fast',
+        '-crf',      '18',
+        '-c:a',      'aac',
+        '-b:a',      '128k',
+        '-pix_fmt',  'yuv420p',   // broadest player compatibility
+        '-movflags', '+faststart', // moov atom at front for streaming
+        'output.mp4',
+      ]);
+
+      // Read output
+      const data = await ffmpeg.readFile('output.mp4');
+      console.log(`[Recorder] MP4 transcoded. Size: ${(data.byteLength / 1024 / 1024).toFixed(2)} MB`);
+      return new Blob([data], { type: 'video/mp4' });
+
+    } finally {
+      ffmpeg.off('progress', onProgress);
+      // Clean up virtual FS to free memory for next export
+      try { await ffmpeg.deleteFile('input.webm');  } catch (_) {}
+      try { await ffmpeg.deleteFile('output.mp4');  } catch (_) {}
+    }
   }
 
   _cleanup() {
@@ -137,10 +244,10 @@ class Recorder {
   // ── Static helper ─────────────────────────────────────────────────────
 
   /**
-   * Trigger a browser download of the recorded file.
-   * @param {string} url    Blob URL from onStop
-   * @param {string} ext    'webm' or 'mp4'
-   * @param {string} name   base filename (without extension)
+   * Trigger a browser download.
+   * @param {string} url   Blob URL from onStop
+   * @param {string} ext   'mp4' or 'webm'
+   * @param {string} name  base filename (without extension)
    */
   static download(url, ext, name = 'imessage-overlay') {
     const a = document.createElement('a');
