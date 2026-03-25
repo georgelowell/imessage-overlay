@@ -403,11 +403,15 @@
       duration = last ? last.endTime + 2 : 10;
     }
 
+    // Start routing Web Audio API sounds into a capture stream before MediaRecorder starts
+    const audioStream = AudioEngine.startRecording();
+
     activeRenderer = new Renderer(canvas, sourceVideo, timeline, opts);
     activeRecorder = new Recorder(canvas, {
       fps:          30,
       videoBitrate: 8_000_000,
       duration,
+      audioStream,
       onProgress: ratio => {
         exportProgress.value = Math.round(ratio * 100);
         exportLabel.textContent = `Exporting… ${Math.round(ratio * 100)}%`;
@@ -430,6 +434,7 @@
     });
 
     activeRecorder.onStop = (url, ext) => {
+      AudioEngine.stopRecording();
       Recorder.download(url, ext, 'imessage-overlay');
       exportLabel.textContent = ext === 'mp4' ? 'Export complete!' : 'Saved as WebM (MP4 conversion failed).';
       // Keep status visible briefly before hiding
@@ -464,6 +469,7 @@
       activeRenderer = null;
     }
     if (activeRecorder) {
+      AudioEngine.stopRecording();  // disconnect audio capture routing (idempotent)
       activeRecorder.stop();
       activeRecorder = null;
     }

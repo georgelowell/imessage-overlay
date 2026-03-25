@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+- **No audio in exported video**: Rewired `AudioEngine` to use the Web Audio API (`AudioContext` + `MediaElementSourceNode`). On export, `startRecording()` creates a `MediaStreamAudioDestinationNode`, routes all sounds (typing, sent, received) through it, and returns the resulting `MediaStream`. `Recorder` combines the canvas video tracks with the audio tracks via `new MediaStream([...videoTracks, ...audioTracks])` before passing to `MediaRecorder`. Audio context is stopped cleanly via `stopRecording()` when export finishes or is cancelled.
+- **MIME type lacked audio codec**: `Recorder._pickMime()` now prefers `video/webm;codecs=vp9,opus` and `video/webm;codecs=vp8,opus` before falling back to video-only variants.
 - **FFmpeg.wasm CORS error on GitHub Pages**: Downloaded all three FFmpeg.wasm files (`ffmpeg.js`, `ffmpeg-core.js`, `ffmpeg-core.wasm`) into `assets/ffmpeg/` and updated `index.html` and `recorder.js` to load them locally instead of from unpkg CDN.
 - Added `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` meta tags to `index.html` for SharedArrayBuffer/FFmpeg.wasm compatibility.
 

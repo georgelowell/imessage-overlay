@@ -98,6 +98,7 @@ class Recorder {
       fps:               options.fps               || 30,
       videoBitrate:      options.videoBitrate       || 8_000_000,
       duration:          options.duration           || 0,
+      audioStream:       options.audioStream        || null,  // MediaStream from AudioEngine.startRecording()
       onProgress:        options.onProgress         || null,
       onConvertStart:    options.onConvertStart      || null,
       onConvertProgress: options.onConvertProgress  || null,
@@ -117,6 +118,8 @@ class Recorder {
 
   static _pickMime() {
     const candidates = [
+      'video/webm;codecs=vp9,opus',  // VP9 video + Opus audio (best quality, captures audio)
+      'video/webm;codecs=vp8,opus',  // VP8 video + Opus audio
       'video/webm;codecs=vp9',
       'video/webm;codecs=vp8',
       'video/webm',
@@ -137,7 +140,16 @@ class Recorder {
     if (this._mediaRecorder) this._cleanup();
 
     this._chunks = [];
-    this._stream = this.canvas.captureStream(this.options.fps);
+
+    // Combine canvas video tracks with audio tracks from AudioEngine (if provided).
+    // Using new MediaStream([...]) rather than captureStream() directly so we can
+    // inject the Web Audio API output alongside the canvas video.
+    const canvasStream = this.canvas.captureStream(this.options.fps);
+    const tracks = [...canvasStream.getVideoTracks()];
+    if (this.options.audioStream) {
+      tracks.push(...this.options.audioStream.getAudioTracks());
+    }
+    this._stream = new MediaStream(tracks);
 
     const mime    = Recorder._pickMime();
     const recOpts = { mimeType: mime || undefined };
@@ -257,7 +269,8 @@ class Recorder {
 
   _cleanup() {
     if (this._stream) {
-      this._stream.getTracks().forEach(t => t.stop());
+      // Only stop video tracks; audio tracks are owned by AudioEngine's AudioContext
+      this._stream.getVideoTracks().forEach(t => t.stop());
       this._stream = null;
     }
     this._mediaRecorder = null;
