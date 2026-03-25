@@ -49,9 +49,9 @@ async function _loadFFmpeg() {
   // Coalesce concurrent calls into a single load
   if (!_ffmpegLoadPromise) {
     _ffmpegLoadPromise = (async () => {
-      // Guard: CDN script must have loaded
+      // Guard: local ffmpeg.js script must have loaded
       if (typeof FFmpegWASM === 'undefined') {
-        throw new Error('FFmpeg.wasm CDN script failed to load. Check your network connection.');
+        throw new Error('FFmpeg.wasm script failed to load. assets/ffmpeg/ffmpeg.js may be missing.');
       }
 
       const { FFmpeg } = FFmpegWASM;
