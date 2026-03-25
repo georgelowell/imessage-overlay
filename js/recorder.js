@@ -16,9 +16,26 @@
  *   onConvertError(err)          — fires if FFmpeg fails (fallback to WebM)
  *
  * FFmpeg globals (loaded via CDN in index.html):
- *   FFmpegWASM.FFmpeg  — the FFmpeg class
- *   FFmpegUtil.toBlobURL, FFmpegUtil.fetchFile — helpers
+ *   FFmpegWASM.FFmpeg  — the FFmpeg class (@ffmpeg/ffmpeg UMD build)
+ *
+ * @ffmpeg/util is NOT loaded from CDN; the two helpers we need are inlined
+ * below to avoid an extra script dependency and global-name fragility.
  */
+
+// ── Inlined @ffmpeg/util helpers ──────────────────────────────────────────────
+
+/** Fetch a URL and return it as a same-origin blob URL (bypasses WASM CORS). */
+async function _toBlobURL(url, mimeType) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status} ${resp.statusText}`);
+  const blob = new Blob([await resp.arrayBuffer()], { type: mimeType });
+  return URL.createObjectURL(blob);
+}
+
+/** Convert a Blob to a Uint8Array for FFmpeg's virtual filesystem. */
+async function _fetchFile(blob) {
+  return new Uint8Array(await blob.arrayBuffer());
+}
 
 // ── FFmpeg singleton ──────────────────────────────────────────────────────────
 // Loaded once on first export; reused on subsequent exports.
@@ -32,24 +49,23 @@ async function _loadFFmpeg() {
   // Coalesce concurrent calls into a single load
   if (!_ffmpegLoadPromise) {
     _ffmpegLoadPromise = (async () => {
-      // Guard: CDN scripts must have loaded
-      if (typeof FFmpegWASM === 'undefined' || typeof FFmpegUtil === 'undefined') {
-        throw new Error('FFmpeg.wasm CDN scripts failed to load. Check your network connection.');
+      // Guard: CDN script must have loaded
+      if (typeof FFmpegWASM === 'undefined') {
+        throw new Error('FFmpeg.wasm CDN script failed to load. Check your network connection.');
       }
 
       const { FFmpeg } = FFmpegWASM;
-      const { toBlobURL } = FFmpegUtil;
 
       console.log('[Recorder] Downloading FFmpeg core (~25 MB, first export only)…');
       const ffmpeg = new FFmpeg();
 
       // Load the single-threaded core (no SharedArrayBuffer / COOP headers required)
       await ffmpeg.load({
-        coreURL: await toBlobURL(
+        coreURL: await _toBlobURL(
           'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
           'text/javascript'
         ),
-        wasmURL: await toBlobURL(
+        wasmURL: await _toBlobURL(
           'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
           'application/wasm'
         ),
@@ -201,8 +217,6 @@ class Recorder {
    * @returns {Promise<Blob>} MP4 blob
    */
   async _transcodeToMp4(webmBlob) {
-    const { fetchFile } = FFmpegUtil;
-
     // Signal "loading" phase before the potentially slow WASM download
     if (this.options.onConvertStart) this.options.onConvertStart();
 
@@ -218,7 +232,7 @@ class Recorder {
 
     try {
       // Write input
-      await ffmpeg.writeFile('input.webm', await fetchFile(webmBlob));
+      await ffmpeg.writeFile('input.webm', await _fetchFile(webmBlob));
 
       // Transcode: H.264 video + AAC audio, web-optimised
       await ffmpeg.exec([
