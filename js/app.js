@@ -412,13 +412,20 @@
         exportProgress.value = Math.round(ratio * 100);
         exportLabel.textContent = `Exporting… ${Math.round(ratio * 100)}%`;
       },
+      onConvertStart: () => {
+        // FFmpeg core is ~25 MB and downloads once; show a loading state
+        exportProgress.value = 0;
+        exportLabel.textContent = 'Loading FFmpeg… (first export only)';
+      },
       onConvertProgress: ratio => {
         exportProgress.value = Math.round(ratio * 100);
         exportLabel.textContent = `Converting to MP4… ${Math.round(ratio * 100)}%`;
       },
-      onConvertError: () => {
-        // FFmpeg failed; onStop will still fire with the WebM fallback
-        exportLabel.textContent = 'MP4 conversion failed — saving as WebM…';
+      onConvertError: err => {
+        // Surface the real error so it's diagnosable
+        const msg = err && err.message ? err.message : String(err);
+        console.error('[Export] FFmpeg failed:', err);
+        alert(`MP4 conversion failed — downloading as WebM instead.\n\nError: ${msg}`);
       },
     });
 

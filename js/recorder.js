@@ -32,12 +32,18 @@ async function _loadFFmpeg() {
   // Coalesce concurrent calls into a single load
   if (!_ffmpegLoadPromise) {
     _ffmpegLoadPromise = (async () => {
-      const { FFmpeg } = FFmpegWASM;           // from @ffmpeg/ffmpeg UMD
-      const { toBlobURL } = FFmpegUtil;         // from @ffmpeg/util UMD
+      // Guard: CDN scripts must have loaded
+      if (typeof FFmpegWASM === 'undefined' || typeof FFmpegUtil === 'undefined') {
+        throw new Error('FFmpeg.wasm CDN scripts failed to load. Check your network connection.');
+      }
 
+      const { FFmpeg } = FFmpegWASM;
+      const { toBlobURL } = FFmpegUtil;
+
+      console.log('[Recorder] Downloading FFmpeg core (~25 MB, first export only)…');
       const ffmpeg = new FFmpeg();
 
-      // Load the single-threaded core (no SharedArrayBuffer required)
+      // Load the single-threaded core (no SharedArrayBuffer / COOP headers required)
       await ffmpeg.load({
         coreURL: await toBlobURL(
           'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
@@ -53,6 +59,9 @@ async function _loadFFmpeg() {
       console.log('[Recorder] FFmpeg.wasm loaded.');
       return ffmpeg;
     })();
+
+    // Reset on failure so the next export can retry
+    _ffmpegLoadPromise.catch(() => { _ffmpegLoadPromise = null; });
   }
 
   return _ffmpegLoadPromise;
@@ -79,6 +88,7 @@ class Recorder {
       videoBitrate:      options.videoBitrate       || 8_000_000,
       duration:          options.duration           || 0,
       onProgress:        options.onProgress         || null,
+      onConvertStart:    options.onConvertStart      || null,
       onConvertProgress: options.onConvertProgress  || null,
       onConvertError:    options.onConvertError      || null,
     };
@@ -192,6 +202,10 @@ class Recorder {
    */
   async _transcodeToMp4(webmBlob) {
     const { fetchFile } = FFmpegUtil;
+
+    // Signal "loading" phase before the potentially slow WASM download
+    if (this.options.onConvertStart) this.options.onConvertStart();
+
     const ffmpeg = await _loadFFmpeg();
 
     // Wire up transcoding-phase progress
