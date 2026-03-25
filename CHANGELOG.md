@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- **Custom avatar image for counterparty**: A new "Avatar image" file input appears in the Counterparty settings. When a image is set, it is drawn as a circular-cropped image (using `ctx.arc` + `ctx.clip`) in place of the initials bubble. The color circle remains as a background in case the image has transparency.
+- **Inline custom emoji in bubbles**: Message text can include `[emoji:bull_chef]` tags. The parser preserves these tags (none of the timing-token regexes match them). `IMessageUI.drawMessageBubble` tokenizes text around `[emoji:name]` tags and draws the corresponding image inline, scaled to match the line height, with correct word-wrapping.
+- **Custom emoji picker**: A 🖼 button next to the existing emoji picker opens a panel showing all registered custom emoji images. Clicking one inserts `[emoji:name]` at the cursor position. The two pickers are mutually exclusive.
+- **`assets/images/bull_chef.png`**: Added the bull chef custom emoji image.
+
 ### Fixed
 - **No audio in exported video**: Rewired `AudioEngine` to use the Web Audio API (`AudioContext` + `MediaElementSourceNode`). On export, `startRecording()` creates a `MediaStreamAudioDestinationNode`, routes all sounds (typing, sent, received) through it, and returns the resulting `MediaStream`. `Recorder` combines the canvas video tracks with the audio tracks via `new MediaStream([...videoTracks, ...audioTracks])` before passing to `MediaRecorder`. Audio context is stopped cleanly via `stopRecording()` when export finishes or is cancelled.
 - **MIME type lacked audio codec**: `Recorder._pickMime()` now prefers `video/webm;codecs=vp9,opus` and `video/webm;codecs=vp8,opus` before falling back to video-only variants.

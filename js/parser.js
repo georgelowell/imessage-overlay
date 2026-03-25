@@ -81,7 +81,9 @@ const Parser = (() => {
       const speaker = msgMatch[1];          // 'A' or 'B'
       const rest    = msgMatch[2];          // everything after "A: "
 
-      // Strip all bracket tokens to get the clean message text
+      // Strip timing bracket tokens to get the clean message text.
+      // [emoji:name] tags are intentionally preserved — none of the regexes
+      // below match them, so they pass through as literal text for the renderer.
       const text = rest
         .replace(/\[typing:\d+(?:\.\d+)?s\]/g, '')
         .replace(/\[\d+(?:\.\d+)?s\]/g, '')

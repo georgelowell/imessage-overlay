@@ -115,6 +115,9 @@
               <input type="text" id="counterpartyName" placeholder="John" />
               <label for="counterpartyColor">Avatar color</label>
               <input type="color" id="counterpartyColor" value="#34C759" />
+              <label for="cpAvatarImage">Avatar image (optional)</label>
+              <input type="file" id="cpAvatarImage" accept="image/*" />
+              <p class="hint">Overrides initials &amp; color when set.</p>
             </div>
           </div>
 
@@ -125,10 +128,16 @@
       <section class="control-group">
         <div class="script-label-row">
           <label for="scriptInput">Conversation Script</label>
-          <button id="emojiToggle" class="emoji-toggle-btn" title="Insert emoji">😊</button>
+          <div class="script-btn-group">
+            <button id="customEmojiToggle" class="emoji-toggle-btn" title="Insert custom emoji">🖼</button>
+            <button id="emojiToggle" class="emoji-toggle-btn" title="Insert emoji">😊</button>
+          </div>
         </div>
 
-        <!-- Emoji picker -->
+        <!-- Custom emoji picker (images from assets/images/) -->
+        <div id="customEmojiPicker" class="custom-emoji-picker hidden"></div>
+
+        <!-- Standard emoji picker -->
         <div id="emojiPicker" class="emoji-picker hidden">
           <div class="emoji-tabs" id="emojiTabs"></div>
           <div class="emoji-grid" id="emojiGrid"></div>

@@ -13,6 +13,21 @@
 
 (function () {
 
+  // ── Custom emoji registry ────────────────────────────────────────────
+  // Maps emoji name → { src, label } for the picker and renderer.
+  // Add new entries here to register additional custom emoji images.
+  const CUSTOM_EMOJI_DEFS = [
+    { name: 'bull_chef', src: 'assets/images/bull_chef.png', label: 'Bull Chef' },
+  ];
+
+  // Pre-load HTMLImageElements so the renderer can draw them immediately.
+  const _emojiImages = {};
+  for (const def of CUSTOM_EMOJI_DEFS) {
+    const img = new Image();
+    img.src = def.src;
+    _emojiImages[def.name] = img;
+  }
+
   // ── DOM refs ────────────────────────────────────────────────────────
   const bgTabVideo         = document.getElementById('bgTabVideo');
   const bgTabImage         = document.getElementById('bgTabImage');
@@ -35,6 +50,7 @@
   const cpInitials         = document.getElementById('counterpartyInitials');
   const cpName             = document.getElementById('counterpartyName');
   const cpColor            = document.getElementById('counterpartyColor');
+  const cpAvatarImageInput = document.getElementById('cpAvatarImage');
   const contactName        = document.getElementById('contactName');
   const statusTime         = document.getElementById('statusTime');
   const scrimOpacity       = document.getElementById('scrimOpacity');
@@ -54,12 +70,13 @@
   const sourceVideo        = document.getElementById('sourceVideo');
 
   // ── State ────────────────────────────────────────────────────────────
-  let bgMode        = 'video';  // 'video' | 'image'
-  let videoReady    = false;
-  let imageReady    = false;
-  let _uiMode       = 'idle';
+  let bgMode         = 'video';  // 'video' | 'image'
+  let videoReady     = false;
+  let imageReady     = false;
+  let _uiMode        = 'idle';
   let activeRenderer = null;
   let activeRecorder = null;
+  let _cpAvatarImg   = null;   // HTMLImageElement for counterparty avatar (or null)
 
   // Image element used as texture source in image mode
   const bgImage = new Image();
@@ -189,7 +206,57 @@
     wrap.style.height   = canvas.style.height;
   }
 
-  // ── Emoji picker ─────────────────────────────────────────────────────
+  // ── Counterparty avatar image upload ────────────────────────────────
+
+  cpAvatarImageInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) { _cpAvatarImg = null; return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { _cpAvatarImg = img; };
+    img.src = url;
+  });
+
+  // ── Custom emoji picker ──────────────────────────────────────────────
+
+  const customEmojiToggle  = document.getElementById('customEmojiToggle');
+  const customEmojiPicker  = document.getElementById('customEmojiPicker');
+
+  // Populate picker with all registered custom emoji
+  for (const def of CUSTOM_EMOJI_DEFS) {
+    const btn = document.createElement('button');
+    btn.className = 'custom-emoji-btn';
+    btn.title     = def.label;
+
+    const img = document.createElement('img');
+    img.src = def.src;
+    img.alt = def.label;
+    btn.appendChild(img);
+
+    const lbl = document.createElement('span');
+    lbl.textContent = def.label;
+    btn.appendChild(lbl);
+
+    btn.addEventListener('click', () => {
+      _insertEmoji(`[emoji:${def.name}]`);
+      customEmojiPicker.classList.add('hidden');
+      customEmojiToggle.classList.remove('active');
+    });
+    customEmojiPicker.appendChild(btn);
+  }
+
+  customEmojiToggle.addEventListener('click', () => {
+    const isHidden = customEmojiPicker.classList.contains('hidden');
+    // Close standard picker if open
+    if (isHidden) {
+      emojiPicker.classList.add('hidden');
+      emojiToggle.classList.remove('active');
+    }
+    customEmojiPicker.classList.toggle('hidden', !isHidden);
+    customEmojiToggle.classList.toggle('active', isHidden);
+  });
+
+  // ── Standard emoji picker ─────────────────────────────────────────────
 
   const EMOJI_CATEGORIES = [
     { label: '😊', name: 'Smileys', emojis: ['😀','😁','😂','🤣','😊','😍','🥰','😘','🥹','😎','🤩','🥳','😅','😭','😤','😡','🤔','🤗','😴','🤑','😬','🙄','😱','😰','🫡','🥺','😏','😒','😔','😞','😣','😫','😩','🥱','🤯','🤠','🥸','🤡','👻','💀'] },
@@ -239,9 +306,13 @@
     scriptInput.focus();
   }
 
-  // Toggle picker open/closed
+  // Toggle picker open/closed (close custom picker if open)
   emojiToggle.addEventListener('click', () => {
     const isHidden = emojiPicker.classList.contains('hidden');
+    if (isHidden) {
+      customEmojiPicker.classList.add('hidden');
+      customEmojiToggle.classList.remove('active');
+    }
     emojiPicker.classList.toggle('hidden', !isHidden);
     emojiToggle.classList.toggle('active', isHidden);
   });
@@ -305,6 +376,8 @@
       cpInitials:       cpInitials.value.trim() || 'JD',
       cpName:           cpName.value.trim()     || 'John',
       cpColor:          cpColor.value,
+      cpAvatarImage:    _cpAvatarImg,
+      emojiImages:      _emojiImages,
       // Background
       bgMode:           bgMode,
       bgImage:          bgMode === 'image' ? bgImage : null,

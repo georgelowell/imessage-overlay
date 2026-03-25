@@ -453,5 +453,50 @@ select:focus {
   border-color: var(--accent);
 }
 
+/* ── Script button group ── */
+.script-btn-group {
+  display: flex;
+  gap: 4px;
+}
+
+/* ── Custom emoji picker ── */
+.custom-emoji-picker {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.custom-emoji-btn {
+  background: var(--border);
+  border: none;
+  border-radius: 8px;
+  padding: 5px;
+  cursor: pointer;
+  transform: none;
+  transition: background 0.1s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.custom-emoji-btn img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 4px;
+  display: block;
+}
+
+.custom-emoji-btn:hover { background: var(--accent); color: #fff; }
+.custom-emoji-btn:active { transform: scale(0.92); }
+
 /* ── Utility ── */
 .hidden { display: none !important; }

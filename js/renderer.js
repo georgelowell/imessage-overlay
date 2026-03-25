@@ -276,12 +276,13 @@ class Renderer {
 
       if (options.showCounterparty) {
         IMessageUI.drawCounterparty(ctx, {
-          canvasW:  W,
-          topY:     L.cpY,
-          initials: options.cpInitials || '?',
-          name:     options.cpName || '',
-          color:    options.cpColor || '#34C759',
-          scale:    s,
+          canvasW:     W,
+          topY:        L.cpY,
+          initials:    options.cpInitials || '?',
+          name:        options.cpName || '',
+          color:       options.cpColor || '#34C759',
+          avatarImage: options.cpAvatarImage || null,
+          scale:       s,
         });
       }
     }
@@ -408,7 +409,7 @@ class Renderer {
 
   _drawBubbles() {
     const { ctx, _layout: L } = this;
-    const cfg = { canvasW: L.W, scale: L.s };
+    const cfg = { canvasW: L.W, scale: L.s, emojiImages: this.options.emojiImages || {} };
 
     // Top-anchored: first bubble starts just below the header, each
     // subsequent bubble flows downward from the bottom of the previous one.

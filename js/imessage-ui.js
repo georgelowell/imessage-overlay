@@ -15,7 +15,13 @@
  *   IMessageUI.drawInputBar(ctx, cfg)
  *   IMessageUI.drawMessageBubble(ctx, msg, cfg)
  *   IMessageUI.drawTypingIndicator(ctx, speaker, animPhase, cfg)
- *   IMessageUI.measureBubble(ctx, text, cfg)  → { w, h }
+ *   IMessageUI.measureBubble(ctx, text, cfg)  → { w, h, lines }
+ *
+ * Inline emoji support:
+ *   Message text may contain [emoji:name] tags (e.g. [emoji:bull_chef]).
+ *   Pass cfg.emojiImages = { name: HTMLImageElement } to enable rendering.
+ *   measureBubble/drawMessageBubble treat each tag as an image token
+ *   scaled to match the line height, laid out inline with text.
  */
 
 const IMessageUI = (() => {
@@ -229,46 +235,67 @@ const IMessageUI = (() => {
 
   /**
    * Draw the counterparty avatar + name below the nav bar.
+   * If cfg.avatarImage is a loaded HTMLImageElement, it is drawn as a
+   * circular-cropped image (ctx.arc + ctx.clip) instead of initials.
+   *
    * @param {CanvasRenderingContext2D} ctx
    * @param {Object} cfg
-   *   cfg.canvasW     {number}
-   *   cfg.topY        {number}  top of the area
-   *   cfg.initials    {string}
-   *   cfg.name        {string}
-   *   cfg.color       {string}  circle fill color
-   *   cfg.scale       {number}
+   *   cfg.canvasW      {number}
+   *   cfg.topY         {number}   top of the area
+   *   cfg.initials     {string}
+   *   cfg.name         {string}
+   *   cfg.color        {string}   circle fill color (used as background behind image too)
+   *   cfg.avatarImage  {HTMLImageElement|null}  custom circular avatar
+   *   cfg.scale        {number}
    */
   function drawCounterparty(ctx, cfg) {
     const {
       canvasW,
       topY,
-      initials  = '?',
-      name      = '',
-      color     = '#34C759',
-      scale     = 1,
+      initials    = '?',
+      name        = '',
+      color       = '#34C759',
+      avatarImage = null,
+      scale       = 1,
     } = cfg;
 
-    const cx     = canvasW / 2;
-    const r      = 26 * scale;
-    const cy     = topY + r + 8 * scale;
+    const cx = canvasW / 2;
+    const r  = 26 * scale;
+    const cy = topY + r + 8 * scale;
 
-    // Circle
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
+    if (avatarImage && avatarImage.complete && avatarImage.naturalWidth) {
+      // Draw color background circle first (visible if image has transparency)
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
 
-    // Initials
-    ctx.font        = `600 ${16 * scale}px -apple-system, SF Pro Text, sans-serif`;
-    ctx.fillStyle   = WHITE;
-    ctx.textAlign   = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(initials.toUpperCase().slice(0, 2), cx, cy);
+      // Clip to circle and draw the custom avatar image
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(avatarImage, cx - r, cy - r, r * 2, r * 2);
+      ctx.restore();
+    } else {
+      // Initials bubble (default behavior)
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+
+      ctx.font         = `600 ${16 * scale}px -apple-system, SF Pro Text, sans-serif`;
+      ctx.fillStyle    = WHITE;
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(initials.toUpperCase().slice(0, 2), cx, cy);
+    }
 
     // Name below circle
     if (name) {
-      ctx.font        = `400 ${13 * scale}px -apple-system, SF Pro Text, sans-serif`;
-      ctx.fillStyle   = TEXT_PRIMARY;
+      ctx.font         = `400 ${13 * scale}px -apple-system, SF Pro Text, sans-serif`;
+      ctx.fillStyle    = TEXT_PRIMARY;
+      ctx.textAlign    = 'center';
       ctx.textBaseline = 'top';
       ctx.fillText(name, cx, cy + r + 6 * scale);
     }
@@ -341,51 +368,125 @@ const IMessageUI = (() => {
   const BUBBLE_RADIUS          = 18;
   const TAIL_SIZE              = 8;
 
+  // ── Inline emoji token helpers ────────────────────────────────────────
+
+  /**
+   * Split message text into a flat array of render tokens.
+   * [emoji:name] tags become { type:'emoji', name } tokens.
+   * All other text is split on whitespace into { type:'text', str } tokens.
+   */
+  function _tokenize(text) {
+    const tokens = [];
+    const parts  = text.split(/(\[emoji:[^\]]+\])/);
+    for (const part of parts) {
+      if (!part) continue;
+      const m = part.match(/^\[emoji:([^\]]+)\]$/);
+      if (m) {
+        tokens.push({ type: 'emoji', name: m[1] });
+      } else {
+        for (const word of part.split(/\s+/).filter(Boolean)) {
+          tokens.push({ type: 'text', str: word });
+        }
+      }
+    }
+    return tokens;
+  }
+
+  /**
+   * Greedy word-wrap token array into lines (array of token arrays).
+   * Emoji tokens are treated as single "words" with width = emojiSlotW.
+   * A space-width gap is accounted for between every two adjacent tokens.
+   */
+  function _wrapTokens(ctx, tokens, maxW, emojiSlotW) {
+    if (tokens.length === 0) return [[]];
+    const lines  = [];
+    const spaceW = ctx.measureText(' ').width;
+    let line  = [];
+    let lineW = 0;
+
+    for (const tok of tokens) {
+      const tokW = tok.type === 'text' ? ctx.measureText(tok.str).width : emojiSlotW;
+      if (line.length === 0) {
+        line  = [tok];
+        lineW = tokW;
+      } else {
+        const neededW = lineW + spaceW + tokW;
+        if (neededW > maxW) {
+          lines.push(line);
+          line  = [tok];
+          lineW = tokW;
+        } else {
+          line.push(tok);
+          lineW = neededW;
+        }
+      }
+    }
+    if (line.length > 0) lines.push(line);
+    return lines;
+  }
+
+  /** Measure the pixel width of a single wrapped line of tokens. */
+  function _lineWidth(ctx, lineTokens, emojiSlotW) {
+    const spaceW = ctx.measureText(' ').width;
+    return lineTokens.reduce((total, tok, i) => {
+      const w = tok.type === 'text' ? ctx.measureText(tok.str).width : emojiSlotW;
+      return total + (i > 0 ? spaceW : 0) + w;
+    }, 0);
+  }
+
   /**
    * Measure how wide/tall a bubble would be for the given text.
    * @param {CanvasRenderingContext2D} ctx
    * @param {string} text
    * @param {Object} cfg  { canvasW, scale }
-   * @returns {{ w: number, h: number, lines: string[] }}
+   * @returns {{ w: number, h: number, lines: (token[])[] }}
+   *   lines is an array of lines; each line is an array of render tokens.
    */
   function measureBubble(ctx, text, cfg) {
     const { canvasW, scale = 1 } = cfg;
-    const maxW  = canvasW * BUBBLE_MAX_WIDTH_RATIO - BUBBLE_PADDING_X * 2 * scale;
-    const fs    = BUBBLE_FONT_SIZE * scale;
-    const lh    = BUBBLE_LINE_HEIGHT * scale;
-    const px    = BUBBLE_PADDING_X * scale;
-    const py    = BUBBLE_PADDING_Y * scale;
+    const maxW = canvasW * BUBBLE_MAX_WIDTH_RATIO - BUBBLE_PADDING_X * 2 * scale;
+    const fs   = BUBBLE_FONT_SIZE * scale;
+    const lh   = BUBBLE_LINE_HEIGHT * scale;
+    const px   = BUBBLE_PADDING_X * scale;
+    const py   = BUBBLE_PADDING_Y * scale;
 
     ctx.font = `400 ${fs}px -apple-system, SF Pro Text, sans-serif`;
-    const lines = _wrapText(ctx, text, maxW);
-    const w = Math.min(
-      _maxLineWidth(ctx, lines) + px * 2,
-      canvasW * BUBBLE_MAX_WIDTH_RATIO
-    );
+
+    const tokens      = _tokenize(text);
+    const emojiSlotW  = lh;  // each emoji occupies a square equal to the line height
+    const lines       = _wrapTokens(ctx, tokens, maxW, emojiSlotW);
+    const maxLineW    = lines.reduce((m, l) => Math.max(m, _lineWidth(ctx, l, emojiSlotW)), 0);
+
+    const w = Math.min(maxLineW + px * 2, canvasW * BUBBLE_MAX_WIDTH_RATIO);
     const h = lines.length * lh + py * 2;
     return { w, h, lines };
   }
 
   /**
    * Draw a single message bubble.
+   * Supports inline [emoji:name] tags when cfg.emojiImages is provided.
+   *
    * @param {CanvasRenderingContext2D} ctx
    * @param {Object} msg   { speaker: 'A'|'B', text: string }
-   * @param {Object} cfg   { canvasW, y, scale }
-   *   cfg.y  = top Y of the bubble
+   * @param {Object} cfg   { canvasW, y, scale, emojiImages? }
+   *   cfg.y = top Y of the bubble
+   *   cfg.emojiImages = { [name]: HTMLImageElement }
    * @returns {number}  bottom Y of the drawn bubble (for stacking)
    */
   function drawMessageBubble(ctx, msg, cfg) {
-    const { canvasW, y, scale = 1 } = cfg;
+    const { canvasW, y, scale = 1, emojiImages = {} } = cfg;
     const isSender = msg.speaker === 'A';
     const color    = isSender ? BLUE : GRAY;
     const { w, h, lines } = measureBubble(ctx, msg.text, cfg);
 
-    const margin = 12 * scale;
-    const r      = Math.min(BUBBLE_RADIUS * scale, h / 2);
-    const fs     = BUBBLE_FONT_SIZE * scale;
-    const lh     = BUBBLE_LINE_HEIGHT * scale;
-    const px     = BUBBLE_PADDING_X * scale;
-    const py     = BUBBLE_PADDING_Y * scale;
+    const margin      = 12 * scale;
+    const r           = Math.min(BUBBLE_RADIUS * scale, h / 2);
+    const fs          = BUBBLE_FONT_SIZE * scale;
+    const lh          = BUBBLE_LINE_HEIGHT * scale;
+    const px          = BUBBLE_PADDING_X * scale;
+    const py          = BUBBLE_PADDING_Y * scale;
+    const emojiSlotW  = lh;
+    const emojiSize   = lh * 0.88;  // rendered slightly smaller than slot for visual breathing room
 
     // X position
     const bx = isSender
@@ -400,14 +501,35 @@ const IMessageUI = (() => {
     // Tail
     _drawTail(ctx, bx, y, w, h, r, isSender, color, scale);
 
-    // Text — each line centered vertically within its lh slot
+    // Text and inline emoji — render line by line, token by token
     ctx.fillStyle    = WHITE;
     ctx.font         = `400 ${fs}px -apple-system, SF Pro Text, sans-serif`;
     ctx.textAlign    = 'left';
     ctx.textBaseline = 'middle';
 
+    const spaceW = ctx.measureText(' ').width;
+
     for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], bx + px, y + py + (i + 0.5) * lh);
+      const lineTokens = lines[i];
+      const lineY      = y + py + (i + 0.5) * lh;
+      let cx = bx + px;
+
+      for (let j = 0; j < lineTokens.length; j++) {
+        if (j > 0) cx += spaceW;  // inter-token space (mirrors _wrapTokens metric)
+
+        const tok = lineTokens[j];
+        if (tok.type === 'text') {
+          ctx.fillText(tok.str, cx, lineY);
+          cx += ctx.measureText(tok.str).width;
+        } else {
+          // Inline custom emoji image
+          const img = emojiImages[tok.name];
+          if (img && img.complete && img.naturalWidth) {
+            ctx.drawImage(img, cx, lineY - emojiSize / 2, emojiSize, emojiSize);
+          }
+          cx += emojiSlotW;
+        }
+      }
     }
 
     return y + h + 8 * scale;  // return bottom Y
@@ -483,30 +605,6 @@ const IMessageUI = (() => {
     }
 
     return y + bh + 8 * scale;
-  }
-
-  // ── Text wrapping util ───────────────────────────────────────────────
-
-  function _wrapText(ctx, text, maxW) {
-    const words = text.split(/\s+/).filter(Boolean);
-    const lines = [];
-    let current = '';
-
-    for (const word of words) {
-      const test = current ? current + ' ' + word : word;
-      if (ctx.measureText(test).width > maxW && current) {
-        lines.push(current);
-        current = word;
-      } else {
-        current = test;
-      }
-    }
-    if (current) lines.push(current);
-    return lines;
-  }
-
-  function _maxLineWidth(ctx, lines) {
-    return lines.reduce((max, l) => Math.max(max, ctx.measureText(l).width), 0);
   }
 
   // Public API
