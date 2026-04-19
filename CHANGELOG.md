@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+- **Visual bubble builder replaces text script editor**: The raw `<textarea>` script input has been replaced with a card-based conversation builder. Two buttons ("+ Near" = blue/right, "+ Far" = gray/left) add message cards to a vertical list. Each card has a text input, typing-duration field, delay-after field, delete button, and a drag handle for reorder via pointer events (mouse and touch). The card list is serialized to the existing `A:`/`B:` script format before parsing, so `parser.js`, `renderer.js`, and all other modules are unchanged.
+- Emoji pickers (🖼 and 😊) now insert into whichever bubble textarea was last focused.
+
 ### Added
 - **Custom avatar image for counterparty**: A new "Avatar image" file input appears in the Counterparty settings. When a image is set, it is drawn as a circular-cropped image (using `ctx.arc` + `ctx.clip`) in place of the initials bubble. The color circle remains as a background in case the image has transparency.
 - **Inline custom emoji in bubbles**: Message text can include `[emoji:bull_chef]` tags. The parser preserves these tags (none of the timing-token regexes match them). `IMessageUI.drawMessageBubble` tokenizes text around `[emoji:name]` tags and draws the corresponding image inline, scaled to match the line height, with correct word-wrapping.

@@ -127,7 +127,7 @@
       <!-- Conversation script -->
       <section class="control-group">
         <div class="script-label-row">
-          <label for="scriptInput">Conversation Script</label>
+          <label>Conversation</label>
           <div class="script-btn-group">
             <button id="customEmojiToggle" class="emoji-toggle-btn" title="Insert custom emoji">🖼</button>
             <button id="emojiToggle" class="emoji-toggle-btn" title="Insert emoji">😊</button>
@@ -143,18 +143,12 @@
           <div class="emoji-grid" id="emojiGrid"></div>
         </div>
 
-        <textarea id="scriptInput" rows="10" placeholder="A: Hey! [d:2]
-B: Hey back! [t:3]
-A: How's it going? [d:1]
-B: Pretty good! [d:1,t:2]"></textarea>
-        <p class="hint">
-          <strong>A</strong> = sender (blue, right) &nbsp;·&nbsp;
-          <strong>B</strong> = receiver (gray, left)<br />
-          <code>[d:2]</code> delay &nbsp;·&nbsp;
-          <code>[t:3]</code> typing &nbsp;·&nbsp;
-          <code>[d:2,t:3]</code> both<br />
-          Legacy: <code>[2s]</code> &nbsp;·&nbsp; <code>[typing:3s]</code>
-        </p>
+        <!-- Bubble builder -->
+        <div class="bubble-add-row">
+          <button id="btnAddNear" class="btn-add-near" type="button">+ Near</button>
+          <button id="btnAddFar"  class="btn-add-far"  type="button">+ Far</button>
+        </div>
+        <div id="bubbleList" class="bubble-list"></div>
       </section>
 
       <!-- Actions -->

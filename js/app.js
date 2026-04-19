@@ -58,7 +58,9 @@
   const bgVolume           = document.getElementById('bgVolume');
   const bgVolumeValue      = document.getElementById('bgVolumeValue');
   const initialDelay       = document.getElementById('initialDelay');
-  const scriptInput        = document.getElementById('scriptInput');
+  const btnAddNear         = document.getElementById('btnAddNear');
+  const btnAddFar          = document.getElementById('btnAddFar');
+  const bubbleList         = document.getElementById('bubbleList');
   const btnPreview         = document.getElementById('btnPreview');
   const btnExport          = document.getElementById('btnExport');
   const btnStop            = document.getElementById('btnStop');
@@ -77,6 +79,12 @@
   let activeRenderer = null;
   let activeRecorder = null;
   let _cpAvatarImg   = null;   // HTMLImageElement for counterparty avatar (or null)
+
+  // ── Bubble builder state ─────────────────────────────────────────────
+  let bubbles                 = [];
+  let nextBubbleId            = 1;
+  let _lastFocusedBubbleInput = null;
+  let _drag                   = null;
 
   // Image element used as texture source in image mode
   const bgImage = new Image();
@@ -298,12 +306,21 @@
   }
 
   function _insertEmoji(emoji) {
-    const start = scriptInput.selectionStart;
-    const end   = scriptInput.selectionEnd;
-    const val   = scriptInput.value;
-    scriptInput.value = val.slice(0, start) + emoji + val.slice(end);
-    scriptInput.selectionStart = scriptInput.selectionEnd = start + emoji.length;
-    scriptInput.focus();
+    const input = _lastFocusedBubbleInput;
+    if (!input) return;
+    const start = input.selectionStart;
+    const end   = input.selectionEnd;
+    const val   = input.value;
+    input.value = val.slice(0, start) + emoji + val.slice(end);
+    input.selectionStart = input.selectionEnd = start + emoji.length;
+    input.focus();
+    // Sync to bubble data
+    const card = input.closest('.bubble-card[data-id]');
+    if (card) {
+      const id = parseInt(card.dataset.id);
+      const b  = bubbles.find(b => b.id === id);
+      if (b) b.text = input.value;
+    }
   }
 
   // Toggle picker open/closed (close custom picker if open)
@@ -319,6 +336,164 @@
 
   // Render first category on load
   _renderEmojiGrid(EMOJI_CATEGORIES[0].emojis);
+
+  // ── Bubble builder ───────────────────────────────────────────────────
+
+  btnAddNear.addEventListener('click', () => _addBubble('near'));
+  btnAddFar.addEventListener('click',  () => _addBubble('far'));
+
+  function _addBubble(side) {
+    bubbles.push({ id: nextBubbleId++, side, text: '', typing: 0, delay: 0 });
+    _renderBubbles();
+    // Focus the new bubble's textarea
+    const cards = bubbleList.querySelectorAll('.bubble-card');
+    const last  = cards[cards.length - 1];
+    if (last) last.querySelector('.bubble-text-input').focus();
+  }
+
+  function _renderBubbles() {
+    bubbleList.innerHTML = '';
+    if (bubbles.length === 0) {
+      const el = document.createElement('p');
+      el.className   = 'bubble-list-empty';
+      el.textContent = 'Press + Near or + Far to add a message bubble.';
+      bubbleList.appendChild(el);
+      return;
+    }
+    bubbles.forEach(b => bubbleList.appendChild(_makeBubbleCard(b)));
+  }
+
+  function _makeBubbleCard(bubble) {
+    const card = document.createElement('div');
+    card.className  = `bubble-card ${bubble.side}`;
+    card.dataset.id = bubble.id;
+
+    card.innerHTML = `
+      <div class="bubble-card-header">
+        <span class="bubble-drag-handle" title="Drag to reorder">⠿</span>
+        <span class="bubble-label ${bubble.side}">${bubble.side === 'near' ? 'Near' : 'Far'}</span>
+        <button class="bubble-delete" title="Remove" type="button">×</button>
+      </div>
+      <textarea class="bubble-text-input" placeholder="Message text…" rows="2"></textarea>
+      <div class="bubble-timing-row">
+        <div class="bubble-timing-field">
+          <span class="bubble-timing-label">Typing (s)</span>
+          <input type="number" class="bubble-typing" min="0" max="30" step="0.5" placeholder="0" />
+        </div>
+        <div class="bubble-timing-field">
+          <span class="bubble-timing-label">Delay after (s)</span>
+          <input type="number" class="bubble-delay" min="0" max="30" step="0.5" placeholder="0" />
+        </div>
+      </div>
+    `;
+
+    const textarea  = card.querySelector('.bubble-text-input');
+    const typingInp = card.querySelector('.bubble-typing');
+    const delayInp  = card.querySelector('.bubble-delay');
+    const deleteBtn = card.querySelector('.bubble-delete');
+    const handle    = card.querySelector('.bubble-drag-handle');
+
+    // Restore values from bubble data (e.g. after re-render from drag)
+    textarea.value  = bubble.text;
+    typingInp.value = bubble.typing > 0 ? bubble.typing : '';
+    delayInp.value  = bubble.delay  > 0 ? bubble.delay  : '';
+
+    textarea.addEventListener('focus', () => { _lastFocusedBubbleInput = textarea; });
+    textarea.addEventListener('input', () => { bubble.text    = textarea.value; });
+    typingInp.addEventListener('input', () => { bubble.typing = parseFloat(typingInp.value) || 0; });
+    delayInp.addEventListener('input',  () => { bubble.delay  = parseFloat(delayInp.value)  || 0; });
+
+    deleteBtn.addEventListener('click', () => {
+      bubbles = bubbles.filter(b => b.id !== bubble.id);
+      _renderBubbles();
+    });
+
+    _initDrag(card, handle, bubble.id);
+
+    return card;
+  }
+
+  function _getBubbleScript() {
+    return bubbles.map(b => {
+      const side = b.side === 'near' ? 'A' : 'B';
+      const text = b.text.trim() || '…';
+      const d = b.delay  > 0 ? b.delay  : 0;
+      const t = b.typing > 0 ? b.typing : 0;
+      let bracket = '';
+      if (d > 0 && t > 0) bracket = ` [d:${d},t:${t}]`;
+      else if (d > 0)     bracket = ` [d:${d}]`;
+      else if (t > 0)     bracket = ` [t:${t}]`;
+      return `${side}: ${text}${bracket}`;
+    }).join('\n');
+  }
+
+  // ── Drag & drop reordering ────────────────────────────────────────────
+
+  function _initDrag(card, handle, id) {
+    handle.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const rect = card.getBoundingClientRect();
+
+      const ghost = card.cloneNode(true);
+      Object.assign(ghost.style, {
+        position:      'fixed',
+        left:          rect.left + 'px',
+        top:           rect.top  + 'px',
+        width:         rect.width + 'px',
+        opacity:       '0.9',
+        zIndex:        '9999',
+        pointerEvents: 'none',
+        transform:     'scale(1.02)',
+        boxShadow:     '0 8px 24px rgba(0,0,0,0.5)',
+        transition:    'none',
+      });
+      document.body.appendChild(ghost);
+      card.style.opacity = '0.3';
+
+      _drag = { id, card, ghost, offsetY: e.clientY - rect.top, overId: null };
+      handle.setPointerCapture(e.pointerId);
+    });
+
+    handle.addEventListener('pointermove', e => {
+      if (!_drag || _drag.id !== id) return;
+      _drag.ghost.style.top = (e.clientY - _drag.offsetY) + 'px';
+
+      // Temporarily hide ghost to hit-test the card beneath
+      _drag.ghost.style.visibility = 'hidden';
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      _drag.ghost.style.visibility = '';
+
+      const overCard = el && el.closest('.bubble-card[data-id]');
+      bubbleList.querySelectorAll('.bubble-card').forEach(c => c.classList.remove('drag-over'));
+      if (overCard && overCard !== card) {
+        overCard.classList.add('drag-over');
+        _drag.overId = parseInt(overCard.dataset.id);
+      } else {
+        _drag.overId = null;
+      }
+    });
+
+    handle.addEventListener('pointerup', () => {
+      if (!_drag || _drag.id !== id) return;
+
+      _drag.ghost.remove();
+      _drag.card.style.opacity = '';
+      bubbleList.querySelectorAll('.bubble-card').forEach(c => c.classList.remove('drag-over'));
+
+      const { overId } = _drag;
+      _drag = null;
+
+      if (overId !== null) {
+        const fromIdx = bubbles.findIndex(b => b.id === id);
+        const toIdx   = bubbles.findIndex(b => b.id === overId);
+        if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) {
+          const [removed] = bubbles.splice(fromIdx, 1);
+          bubbles.splice(toIdx, 0, removed);
+          _renderBubbles();
+        }
+      }
+    });
+  }
 
   // ── Settings dropdown toggle ─────────────────────────────────────────
 
@@ -409,11 +584,11 @@
       return;
     }
 
-    const script = scriptInput.value.trim();
-    if (!script) {
-      alert('Please enter a conversation script.');
+    if (bubbles.length === 0) {
+      alert('Add at least one message bubble.');
       return;
     }
+    const script = _getBubbleScript();
 
     _stopAll();
 
@@ -449,11 +624,11 @@
       return;
     }
 
-    const script = scriptInput.value.trim();
-    if (!script) {
-      alert('Please enter a conversation script.');
+    if (bubbles.length === 0) {
+      alert('Add at least one message bubble.');
       return;
     }
+    const script = _getBubbleScript();
 
     _stopAll();
 
@@ -583,6 +758,7 @@
 
   _setMode('idle');
   btnExport.disabled = true;   // needs media first
+  _renderBubbles();
 
   console.log('[app] iMessage Overlay ready.');
 
