@@ -14,7 +14,7 @@
 (function () {
 
   // Set to your Cloud Run service URL before deploying server-side export
-  const CLOUD_RUN_URL = '';
+  const CLOUD_RUN_URL = 'https://imessage-overlay-server-566551407527.us-central1.run.app';
 
   // ── Custom emoji registry ────────────────────────────────────────────
   // Maps emoji name → { src, label } for the picker and renderer.
