@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Changed
+- **Mobile-first tab-based UI**: Replaced the desktop sidebar + panel layout with a full-screen three-tab interface — Build (conversation builder), Preview (canvas fullscreen with Play/Stop), Export (background upload, settings, export button). Bottom tab bar on mobile; vertical tab bar on desktop (≥900px) with the side panel and preview visible simultaneously. Canvas sizing now uses `_fitCanvas()` based on viewport dimensions, called on tab switch and window resize.
+- **CSS rewritten for mobile**: Dark theme deepened (`--bg: #000`), `100dvh` for iOS viewport, safe-area insets for home indicator, large tap targets throughout. Desktop layout preserved via `@media (min-width: 900px)`.
+
+### Added
+- **Server-side MP4 export (`server/`)**: Node.js/Express backend that accepts `POST /export` with JPEG frame blobs + audio blob, stitches them into H.264/AAC MP4 via FFmpeg, and returns the file. Includes `Dockerfile` (node:20-alpine + ffmpeg), `cloudbuild.yaml` for Cloud Run deployment, and `.dockerignore`.
+- **iOS Safari export routing**: `_isIOSSafari()` detects iOS Safari at runtime. On iOS, export captures canvas frames as JPEG blobs + audio via MediaRecorder, then POSTs to `CLOUD_RUN_URL`. Other browsers use the existing FFmpeg.wasm path. Set `CLOUD_RUN_URL` at the top of `app.js` before deploying.
+
+### Changed
 - **Visual bubble builder replaces text script editor**: The raw `<textarea>` script input has been replaced with a card-based conversation builder. Two buttons ("+ Near" = blue/right, "+ Far" = gray/left) add message cards to a vertical list. Each card has a text input, typing-duration field, delay-after field, delete button, and a drag handle for reorder via pointer events (mouse and touch). The card list is serialized to the existing `A:`/`B:` script format before parsing, so `parser.js`, `renderer.js`, and all other modules are unchanged.
 - Emoji pickers (🖼 and 😊) now insert into whichever bubble textarea was last focused.
 

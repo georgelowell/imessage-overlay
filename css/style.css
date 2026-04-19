@@ -2,53 +2,216 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:        #1a1a1e;
-  --surface:   #2c2c2e;
-  --border:    #3a3a3c;
-  --accent:    #0a84ff;
-  --danger:    #ff453a;
-  --text:      #f2f2f7;
-  --text-muted:#8e8e93;
-  --panel-w:   340px;
-  --radius:    10px;
+  --bg:          #000000;
+  --surface:     #1c1c1e;
+  --surface-2:   #2c2c2e;
+  --border:      #3a3a3c;
+  --accent:      #0a84ff;
+  --danger:      #ff453a;
+  --text:        #f2f2f7;
+  --text-muted:  #8e8e93;
+  --tab-h:       60px;
+  --radius:      10px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-body {
+html, body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg);
   color: var(--text);
-  height: 100vh;
+  height: 100%;
+}
+
+/* ── App shell ── */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  height: 100vh; /* fallback for browsers without dvh */
   overflow: hidden;
 }
 
-/* ── Layout ── */
-#app {
-  display: flex;
-  height: 100vh;
-}
-
-/* ── Left panel ── */
-#panel {
-  width: var(--panel-w);
-  min-width: var(--panel-w);
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex;
+/* ── Tab panels ── */
+.tab-panel {
+  display: none;
   flex-direction: column;
-  gap: 0;
-  overflow-y: auto;
-  padding: 20px 16px 24px;
+  flex: 1;
+  overflow: hidden;
 }
 
-#panel h1 {
+.tab-panel.active {
+  display: flex;
+}
+
+/* ─────────────────────────────────────────────
+   BUILD TAB
+───────────────────────────────────────────── */
+#tabBuild {
+  background: var(--surface);
+}
+
+.panel-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.panel-title {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.3px;
-  margin-bottom: 18px;
   color: var(--text);
 }
 
-/* ── Control groups ── */
+.script-btn-group {
+  display: flex;
+  gap: 6px;
+}
+
+.build-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.build-footer {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + var(--safe-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+/* ─────────────────────────────────────────────
+   PREVIEW TAB
+───────────────────────────────────────────── */
+#tabPreview {
+  background: #000;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px;
+}
+
+#canvasWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+#mainCanvas {
+  display: block;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+
+#placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-size: 14px;
+  pointer-events: none;
+  text-align: center;
+  padding: 20px;
+  line-height: 1.5;
+}
+
+#previewControls {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.btn-play-main {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 24px;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 14px 36px;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  min-width: 140px;
+  text-align: center;
+}
+
+.btn-play-main:active    { transform: scale(0.97); }
+.btn-play-main:disabled  { opacity: 0.4; cursor: not-allowed; }
+.btn-play-stop           { background: var(--danger); }
+
+/* ─────────────────────────────────────────────
+   EXPORT TAB
+───────────────────────────────────────────── */
+#tabExport {
+  background: var(--surface);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.export-scroll {
+  padding: 0 16px;
+  padding-bottom: calc(24px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+}
+
+.export-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  padding: 16px 0 4px;
+  color: var(--text);
+}
+
+/* ─────────────────────────────────────────────
+   BOTTOM TAB BAR
+───────────────────────────────────────────── */
+#tabBar {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  height: var(--tab-h);
+  padding-bottom: var(--safe-bottom);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 100;
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--text-muted);
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.15s;
+  transform: none;
+}
+
+.tab-btn:active { transform: scale(0.88); }
+.tab-btn.active { color: var(--accent); }
+
+.tab-icon  { font-size: 20px; line-height: 1; }
+.tab-label { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; }
+
+/* ─────────────────────────────────────────────
+   CONTROL GROUPS (shared by Export tab)
+───────────────────────────────────────────── */
 .control-group {
   padding: 14px 0;
   border-bottom: 1px solid var(--border);
@@ -59,7 +222,8 @@ body {
 
 .control-group:last-child { border-bottom: none; }
 
-.control-group label {
+.control-group > label:first-child,
+.control-group > .control-label {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-muted);
@@ -119,6 +283,20 @@ input[type="file"] {
   color: var(--text-muted);
 }
 
+input[type="number"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  padding: 8px 10px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+input[type="number"]:focus { border-color: var(--accent); }
+
 /* ── Toggle row ── */
 .toggle-row {
   display: flex;
@@ -171,7 +349,7 @@ button {
   transition: opacity 0.15s, transform 0.1s;
 }
 
-button:active { transform: scale(0.97); }
+button:active   { transform: scale(0.97); }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-primary   { background: var(--accent); color: #fff; flex: 1; }
@@ -199,40 +377,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   text-align: center;
 }
 
-/* ── Preview area ── */
-#previewArea {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  overflow: hidden;
-}
-
-#canvasWrap {
-  position: relative;
-  /* sized dynamically by JS */
-}
-
-#mainCanvas {
-  display: block;
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-}
-
-#placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #111;
-  border-radius: 12px;
-  color: var(--text-muted);
-  font-size: 14px;
-  pointer-events: none;
-}
-
 /* ── Range slider ── */
 input[type="range"] {
   width: 100%;
@@ -241,7 +385,11 @@ input[type="range"] {
 }
 
 /* ── Settings dropdown ── */
-.settings-section { gap: 0 !important; padding: 0 !important; border-bottom: 1px solid var(--border) !important; }
+.settings-section {
+  gap: 0 !important;
+  padding: 0 !important;
+  border-bottom: 1px solid var(--border) !important;
+}
 
 .settings-toggle {
   width: 100%;
@@ -294,20 +442,13 @@ input[type="range"] {
   margin-top: 4px;
 }
 
-/* ── Script label row ── */
-.script-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 /* ── Emoji toggle button ── */
 .emoji-toggle-btn {
   background: var(--border);
   border: none;
   border-radius: 8px;
   font-size: 16px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   cursor: pointer;
   line-height: 1;
   transform: none;
@@ -315,13 +456,13 @@ input[type="range"] {
 .emoji-toggle-btn:active { opacity: 0.7; transform: none; }
 .emoji-toggle-btn.active { background: var(--accent); }
 
-/* ── Emoji picker ── */
+/* ── Emoji picker (inside Build tab, above scroll) ── */
 .emoji-picker {
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   overflow: hidden;
-  margin-bottom: 6px;
+  flex-shrink: 0;
 }
 
 .emoji-tabs {
@@ -374,101 +515,19 @@ input[type="range"] {
   transform: none;
   transition: background 0.1s;
 }
-.emoji-btn:hover { background: var(--border); }
+.emoji-btn:hover  { background: var(--border); }
 .emoji-btn:active { transform: scale(0.9); }
-
-/* ── Background type tabs ── */
-.bg-type-tabs {
-  display: flex;
-  gap: 6px;
-}
-
-.bg-tab {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 10px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-  /* override label styles from .control-group label */
-  text-transform: none !important;
-  letter-spacing: 0 !important;
-}
-
-.bg-tab input[type="radio"] {
-  display: none;
-}
-
-.bg-tab.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-/* number input (duration) */
-input[type="number"] {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-size: 14px;
-  padding: 8px 10px;
-  width: 100%;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-input[type="number"]:focus {
-  border-color: var(--accent);
-}
-
-/* ── Select ── */
-select {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-size: 14px;
-  padding: 8px 10px;
-  width: 100%;
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.15s;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238e8e93'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  padding-right: 28px;
-}
-
-select:focus {
-  border-color: var(--accent);
-}
-
-/* ── Script button group ── */
-.script-btn-group {
-  display: flex;
-  gap: 4px;
-}
 
 /* ── Custom emoji picker ── */
 .custom-emoji-picker {
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px;
-  margin-bottom: 6px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .custom-emoji-btn {
@@ -495,13 +554,66 @@ select:focus {
   display: block;
 }
 
-.custom-emoji-btn:hover { background: var(--accent); color: #fff; }
+.custom-emoji-btn:hover  { background: var(--accent); color: #fff; }
 .custom-emoji-btn:active { transform: scale(0.92); }
 
-/* ── Utility ── */
-.hidden { display: none !important; }
+/* ── Background type tabs ── */
+.bg-type-tabs {
+  display: flex;
+  gap: 6px;
+}
 
-/* ── Bubble builder ── */
+.bg-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+}
+
+.bg-tab input[type="radio"] { display: none; }
+
+.bg-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ── Select ── */
+select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  padding: 8px 10px;
+  width: 100%;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238e8e93'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+
+select:focus { border-color: var(--accent); }
+
+/* ─────────────────────────────────────────────
+   BUBBLE BUILDER
+───────────────────────────────────────────── */
 .bubble-add-row {
   display: flex;
   gap: 8px;
@@ -511,20 +623,26 @@ select:focus {
   flex: 1;
   background: var(--accent);
   color: #fff;
-  padding: 12px 10px;
+  padding: 14px 10px;
+  font-size: 15px;
+  border-radius: var(--radius);
 }
 
 .btn-add-far {
   flex: 1;
   background: #48484a;
   color: var(--text);
-  padding: 12px 10px;
+  padding: 14px 10px;
+  font-size: 15px;
+  border-radius: var(--radius);
 }
+
+.btn-add-near:active, .btn-add-far:active { opacity: 0.7; transform: scale(0.98); }
 
 .bubble-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   min-height: 40px;
 }
 
@@ -532,7 +650,8 @@ select:focus {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
-  padding: 20px 0 8px;
+  padding: 24px 0 8px;
+  line-height: 1.6;
 }
 
 .bubble-card {
@@ -540,39 +659,39 @@ select:focus {
   border: 1px solid var(--border);
   border-left: 3px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   transition: box-shadow 0.15s;
 }
 
-.bubble-card.near  { border-left-color: var(--accent); }
-.bubble-card.far   { border-left-color: #636366; }
+.bubble-card.near     { border-left-color: var(--accent); }
+.bubble-card.far      { border-left-color: #636366; }
 .bubble-card.drag-over { box-shadow: 0 0 0 2px var(--accent); }
 
 .bubble-card-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
+  min-height: 36px;
 }
 
 .bubble-drag-handle {
   cursor: grab;
   color: var(--text-muted);
   font-size: 15px;
-  padding: 6px 4px;
+  padding: 8px 6px;
   line-height: 1;
   user-select: none;
   touch-action: none;
   flex-shrink: 0;
-  border-radius: 4px;
-  min-width: 28px;
+  border-radius: 6px;
+  min-width: 34px;
   text-align: center;
 }
 
-.bubble-drag-handle:hover  { background: var(--border); }
+.bubble-drag-handle:hover  { background: var(--surface-2); }
 .bubble-drag-handle:active { cursor: grabbing; }
 
 .bubble-label {
@@ -589,11 +708,11 @@ select:focus {
 .bubble-delete {
   background: none;
   color: var(--danger);
-  font-size: 20px;
+  font-size: 22px;
   line-height: 1;
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -611,9 +730,9 @@ select:focus {
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
-  font-size: 14px;
-  padding: 10px;
-  min-height: 52px;
+  font-size: 15px;
+  padding: 12px;
+  min-height: 60px;
   resize: vertical;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.5;
@@ -644,6 +763,59 @@ select:focus {
 }
 
 .bubble-timing-field input[type="number"] {
-  padding: 8px;
-  font-size: 13px;
+  padding: 10px;
+  font-size: 14px;
+}
+
+/* ── Utility ── */
+.hidden { display: none !important; }
+
+/* ─────────────────────────────────────────────
+   DESKTOP LAYOUT  (≥ 900 px)
+───────────────────────────────────────────── */
+@media (min-width: 900px) {
+
+  #app {
+    flex-direction: row;
+  }
+
+  /* Vertical tab bar on the left */
+  #tabBar {
+    flex-direction: column;
+    width: 72px;
+    height: 100vh;
+    border-top: none;
+    border-right: 1px solid var(--border);
+    order: 0;
+    padding-bottom: 0;
+  }
+
+  .tab-btn {
+    height: 72px;
+    width: 100%;
+  }
+
+  .tab-label { font-size: 9px; }
+
+  /* Side panels (Build / Export) */
+  #tabBuild,
+  #tabExport {
+    width: 360px;
+    flex-shrink: 0;
+    order: 1;
+    border-right: 1px solid var(--border);
+  }
+
+  #tabBuild:not(.active),
+  #tabExport:not(.active) {
+    display: none;
+  }
+
+  /* Preview always visible on the right */
+  #tabPreview {
+    display: flex !important;
+    flex: 1;
+    order: 2;
+  }
+
 }

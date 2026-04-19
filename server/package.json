@@ -1,0 +1,16 @@
+{
+  "name": "imessage-overlay-server",
+  "version": "1.0.0",
+  "description": "Server-side MP4 export for iOS Safari clients",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "fluent-ffmpeg": "^2.1.2",
+    "multer": "^1.4.5-lts.1"
+  }
+}

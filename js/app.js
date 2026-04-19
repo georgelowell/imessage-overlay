@@ -13,6 +13,9 @@
 
 (function () {
 
+  // Set to your Cloud Run service URL before deploying server-side export
+  const CLOUD_RUN_URL = '';
+
   // ── Custom emoji registry ────────────────────────────────────────────
   // Maps emoji name → { src, label } for the picker and renderer.
   // Add new entries here to register additional custom emoji images.
@@ -201,18 +204,33 @@
   function _applyCanvasSize(cropW, cropH) {
     canvas.width  = cropW;
     canvas.height = cropH;
-
-    // Scale canvas element to fit in the preview area
-    const areaW = document.getElementById('previewArea').clientWidth  - 40;
-    const areaH = document.getElementById('previewArea').clientHeight - 40;
-    const ratio = Math.min(areaW / cropW, areaH / cropH, 1);
-
-    canvas.style.width  = Math.round(cropW * ratio) + 'px';
-    canvas.style.height = Math.round(cropH * ratio) + 'px';
-    const wrap = document.getElementById('canvasWrap');
-    wrap.style.width    = canvas.style.width;
-    wrap.style.height   = canvas.style.height;
+    _fitCanvas();
   }
+
+  // Fit the canvas display size to the available preview area.
+  // Called after upload, on window resize, and when switching to Preview tab.
+  function _fitCanvas() {
+    if (!canvas.width || !canvas.height) return;
+    const isDesktop = window.matchMedia('(min-width: 900px)').matches;
+    let areaW, areaH;
+    if (isDesktop) {
+      // Right panel = total width minus tab bar (72px) and side panel (360px)
+      areaW = Math.max(200, window.innerWidth - 432 - 40);
+      areaH = window.innerHeight - 40;
+    } else {
+      // Full width minus tab bar (60px), play controls (~80px) and padding
+      areaW = window.innerWidth - 32;
+      areaH = window.innerHeight - 60 - 80 - 48;
+    }
+    const ratio = Math.min(areaW / canvas.width, areaH / canvas.height, 1);
+    canvas.style.width  = Math.round(canvas.width  * ratio) + 'px';
+    canvas.style.height = Math.round(canvas.height * ratio) + 'px';
+    const wrap = document.getElementById('canvasWrap');
+    wrap.style.width  = canvas.style.width;
+    wrap.style.height = canvas.style.height;
+  }
+
+  window.addEventListener('resize', _fitCanvas);
 
   // ── Counterparty avatar image upload ────────────────────────────────
 
@@ -336,6 +354,25 @@
 
   // Render first category on load
   _renderEmojiGrid(EMOJI_CATEGORIES[0].emojis);
+
+  // ── Tab switching ────────────────────────────────────────────────────
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => _switchTab(btn.dataset.tab));
+  });
+
+  function _switchTab(tabId) {
+    const isDesktop = window.matchMedia('(min-width: 900px)').matches;
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+      // On desktop, preview is always visible — don't toggle it via JS
+      if (isDesktop && panel.id === 'tabPreview') return;
+      panel.classList.toggle('active', panel.id === tabId);
+    });
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+    if (tabId === 'tabPreview' || isDesktop) _fitCanvas();
+  }
 
   // ── Bubble builder ───────────────────────────────────────────────────
 
@@ -651,6 +688,14 @@
       duration = last ? last.endTime + 2 : 10;
     }
 
+    _setMode('exporting');
+
+    // iOS Safari can't run FFmpeg.wasm — route to Cloud Run server instead
+    if (_isIOSSafari()) {
+      _exportViaServer(timeline, opts, duration);
+      return;
+    }
+
     // Start routing Web Audio API sounds into a capture stream before MediaRecorder starts
     const audioStream = AudioEngine.startRecording();
 
@@ -699,7 +744,6 @@
       }, 500);
     };
 
-    _setMode('exporting');
     activeRecorder.start();
     activeRenderer.start();
   });
@@ -730,19 +774,109 @@
    */
   function _setMode(mode) {
     _uiMode = mode;
-    btnPreview.disabled = (mode !== 'idle');
-    btnExport.disabled  = (mode !== 'idle') || !_mediaReady();
-    btnStop.hidden      = (mode === 'idle');
+    // Swap Play / Stop buttons in Preview tab
+    btnPreview.hidden  = (mode !== 'idle');
+    btnStop.hidden     = (mode === 'idle');
+    btnExport.disabled = (mode !== 'idle') || !_mediaReady();
 
     if (mode === 'exporting') {
       exportStatus.classList.remove('hidden');
       exportProgress.value = 0;
       exportLabel.textContent = 'Exporting…';
-    } else {
-      if (mode === 'idle') {
-        exportStatus.classList.add('hidden');
-      }
+    } else if (mode === 'idle') {
+      exportStatus.classList.add('hidden');
     }
+  }
+
+  // ── iOS Safari detection ─────────────────────────────────────────────
+
+  function _isIOSSafari() {
+    const ua = navigator.userAgent;
+    return /iPad|iPhone|iPod/.test(ua) &&
+           /Safari/.test(ua) &&
+           !/CriOS|FxiOS|EdgiOS|Chrome/.test(ua);
+  }
+
+  // ── Server-side export (iOS Safari path) ─────────────────────────────
+
+  async function _exportViaServer(timeline, opts, duration) {
+    if (!CLOUD_RUN_URL) {
+      alert('Server export URL not configured.\nSet CLOUD_RUN_URL in app.js.');
+      _setMode('idle');
+      return;
+    }
+
+    const fps = 30;
+    const frames = [];
+    let frameInterval;
+
+    // Audio recording (Safari supports audio/mp4)
+    const audioStream = AudioEngine.startRecording();
+    const audioMime   = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
+    const audioChunks = [];
+    const audioRec    = new MediaRecorder(audioStream, { mimeType: audioMime });
+    audioRec.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    audioRec.start();
+
+    // Capture frames at fps during render
+    activeRenderer = new Renderer(canvas, sourceVideo, timeline, opts);
+    frameInterval  = setInterval(() => {
+      frames.push(canvas.toDataURL('image/jpeg', 0.85));
+    }, 1000 / fps);
+
+    await new Promise(resolve => {
+      activeRenderer.onEnd = resolve;
+      activeRenderer.start();
+    });
+
+    clearInterval(frameInterval);
+
+    await new Promise(resolve => {
+      audioRec.onstop = resolve;
+      audioRec.stop();
+    });
+    AudioEngine.stopRecording();
+
+    const audioBlob = new Blob(audioChunks, { type: audioMime });
+    const audioExt  = audioMime.includes('mp4') ? 'm4a' : 'webm';
+
+    // Build multipart form with frames + audio
+    exportLabel.textContent = `Uploading ${frames.length} frames…`;
+    exportProgress.value    = 0;
+
+    const form = new FormData();
+    form.append('fps',    fps);
+    form.append('width',  canvas.width);
+    form.append('height', canvas.height);
+    form.append('audio',  audioBlob, `audio.${audioExt}`);
+
+    frames.forEach((dataUrl, i) => {
+      const b64  = dataUrl.split(',')[1];
+      const bin  = atob(b64);
+      const arr  = new Uint8Array(bin.length);
+      for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
+      const blob = new Blob([arr], { type: 'image/jpeg' });
+      const name = `frame_${String(i).padStart(6, '0')}.jpg`;
+      form.append(name, blob, name);
+    });
+
+    try {
+      exportLabel.textContent = 'Sending to server…';
+      const res = await fetch(`${CLOUD_RUN_URL}/export`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const mp4Blob = await res.blob();
+      const url     = URL.createObjectURL(mp4Blob);
+      Recorder.download(url, 'mp4', 'imessage-overlay');
+      exportLabel.textContent = 'Export complete!';
+    } catch (err) {
+      console.error('[server export]', err);
+      alert('Server export failed: ' + err.message);
+    }
+
+    setTimeout(() => {
+      _setMode('idle');
+      setTimeout(() => exportStatus.classList.add('hidden'), 100);
+    }, 2500);
   }
 
   // ── Keyboard shortcut ────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <!-- Required for SharedArrayBuffer / FFmpeg.wasm multi-thread support -->
   <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin" />
   <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp" />
@@ -13,167 +13,188 @@
 
   <div id="app">
 
-    <!-- ── Left panel: controls ── -->
-    <aside id="panel">
-      <h1>iMessage Overlay</h1>
-
-      <!-- Background (video or image) -->
-      <section class="control-group">
-        <label>Background</label>
-        <!-- Mode tabs -->
-        <div class="bg-type-tabs">
-          <label class="bg-tab active" id="bgTabVideo">
-            <input type="radio" name="bgType" value="video" checked /> Video
-          </label>
-          <label class="bg-tab" id="bgTabImage">
-            <input type="radio" name="bgType" value="image" /> Image
-          </label>
+    <!-- ── Build Tab ── -->
+    <div id="tabBuild" class="tab-panel active">
+      <div class="panel-topbar">
+        <span class="panel-title">Conversation</span>
+        <div class="script-btn-group">
+          <button id="customEmojiToggle" class="emoji-toggle-btn" title="Insert custom emoji">🖼</button>
+          <button id="emojiToggle" class="emoji-toggle-btn" title="Insert emoji">😊</button>
         </div>
-        <!-- Video upload -->
-        <div id="videoUploadWrap">
-          <input type="file" id="videoUpload" accept="video/*" />
-        </div>
-        <!-- Image upload + Ken Burns + Duration -->
-        <div id="imageUploadWrap" class="hidden">
-          <input type="file" id="imageUpload" accept="image/*" />
-          <label class="toggle-row" style="margin-top:6px;">
-            <input type="checkbox" id="kenBurns" />
-            Ken Burns Effect
-          </label>
-          <div id="kenBurnsOptions" class="sub-options hidden">
-            <label for="kbZoom">Zoom</label>
-            <select id="kbZoom">
-              <option value="in">In</option>
-              <option value="out">Out</option>
-            </select>
-            <label for="kbPan">Pan</label>
-            <select id="kbPan">
-              <option value="none">None</option>
-              <option value="right">Right</option>
-              <option value="left">Left</option>
-              <option value="down">Down</option>
-              <option value="up">Up</option>
-            </select>
-          </div>
-          <label class="setting-row-label" for="imageDuration" style="margin-top:6px;">Duration (seconds)</label>
-          <input type="number" id="imageDuration" min="1" max="600" step="1" value="30" />
-        </div>
-        <p class="hint">Auto-cropped to 9:16.</p>
-      </section>
+      </div>
 
-      <!-- ⚙ Settings dropdown -->
-      <section class="control-group settings-section">
-        <button id="settingsToggle" class="settings-toggle">
-          <span>⚙ Settings</span>
-          <span id="settingsChevron" class="chevron">▼</span>
-        </button>
-        <div id="settingsBody" class="settings-body hidden">
+      <!-- Custom emoji picker -->
+      <div id="customEmojiPicker" class="custom-emoji-picker hidden"></div>
 
-          <!-- Video -->
-          <div class="setting-group">
-            <div class="setting-group-title">Video</div>
-            <label class="setting-row-label">Black overlay <span id="scrimOpacityValue">0%</span></label>
-            <input type="range" id="scrimOpacity" min="0" max="100" value="0" />
-            <label class="setting-row-label">Background audio <span id="bgVolumeValue">50%</span></label>
-            <input type="range" id="bgVolume" min="0" max="100" value="50" />
-          </div>
+      <!-- Standard emoji picker -->
+      <div id="emojiPicker" class="emoji-picker hidden">
+        <div class="emoji-tabs" id="emojiTabs"></div>
+        <div class="emoji-grid" id="emojiGrid"></div>
+      </div>
 
-          <!-- Timing -->
-          <div class="setting-group">
-            <div class="setting-group-title">Timing</div>
-            <label class="setting-row-label" for="initialDelay">Initial delay (seconds)</label>
-            <input type="number" id="initialDelay" min="0" max="30" step="0.5" value="0" />
-          </div>
+      <!-- Scrollable bubble list -->
+      <div class="build-scroll">
+        <div id="bubbleList" class="bubble-list"></div>
+      </div>
 
-          <!-- Header -->
-          <div class="setting-group">
-            <div class="setting-group-title">Header</div>
-            <label class="toggle-row">
-              <input type="checkbox" id="showHeader" checked />
-              Show status bar &amp; nav bar
-            </label>
-            <div id="headerOptions" class="sub-options">
-              <label for="contactName">Contact name</label>
-              <input type="text" id="contactName" placeholder="John" />
-              <label for="statusTime">Status bar time</label>
-              <input type="text" id="statusTime" placeholder="9:41" maxlength="5" />
-              <p class="hint">Leave blank to use current time.</p>
-            </div>
-          </div>
-
-          <!-- Counterparty -->
-          <div class="setting-group">
-            <div class="setting-group-title">Counterparty</div>
-            <label class="toggle-row">
-              <input type="checkbox" id="showCounterparty" />
-              Show avatar &amp; name
-            </label>
-            <div id="counterpartyOptions" class="sub-options hidden">
-              <label for="counterpartyInitials">Initials</label>
-              <input type="text" id="counterpartyInitials" maxlength="2" placeholder="JD" />
-              <label for="counterpartyName">Nickname</label>
-              <input type="text" id="counterpartyName" placeholder="John" />
-              <label for="counterpartyColor">Avatar color</label>
-              <input type="color" id="counterpartyColor" value="#34C759" />
-              <label for="cpAvatarImage">Avatar image (optional)</label>
-              <input type="file" id="cpAvatarImage" accept="image/*" />
-              <p class="hint">Overrides initials &amp; color when set.</p>
-            </div>
-          </div>
-
-        </div>
-      </section>
-
-      <!-- Conversation script -->
-      <section class="control-group">
-        <div class="script-label-row">
-          <label>Conversation</label>
-          <div class="script-btn-group">
-            <button id="customEmojiToggle" class="emoji-toggle-btn" title="Insert custom emoji">🖼</button>
-            <button id="emojiToggle" class="emoji-toggle-btn" title="Insert emoji">😊</button>
-          </div>
-        </div>
-
-        <!-- Custom emoji picker (images from assets/images/) -->
-        <div id="customEmojiPicker" class="custom-emoji-picker hidden"></div>
-
-        <!-- Standard emoji picker -->
-        <div id="emojiPicker" class="emoji-picker hidden">
-          <div class="emoji-tabs" id="emojiTabs"></div>
-          <div class="emoji-grid" id="emojiGrid"></div>
-        </div>
-
-        <!-- Bubble builder -->
+      <!-- Sticky add buttons -->
+      <div class="build-footer">
         <div class="bubble-add-row">
           <button id="btnAddNear" class="btn-add-near" type="button">+ Near</button>
           <button id="btnAddFar"  class="btn-add-far"  type="button">+ Far</button>
         </div>
-        <div id="bubbleList" class="bubble-list"></div>
-      </section>
+      </div>
+    </div>
 
-      <!-- Actions -->
-      <section class="control-group actions">
-        <button id="btnPreview" class="btn-primary">▶ Preview</button>
-        <button id="btnExport" class="btn-secondary" disabled>⬇ Export MP4</button>
-        <button id="btnStop"   class="btn-danger"   hidden>■ Stop</button>
-      </section>
-
-      <!-- Export progress -->
-      <section id="exportStatus" class="hidden">
-        <progress id="exportProgress" value="0" max="100"></progress>
-        <span id="exportLabel">Exporting…</span>
-      </section>
-    </aside>
-
-    <!-- ── Right panel: canvas preview ── -->
-    <main id="previewArea">
+    <!-- ── Preview Tab ── -->
+    <div id="tabPreview" class="tab-panel">
       <div id="canvasWrap">
         <canvas id="mainCanvas"></canvas>
         <div id="placeholder">
-          <span>Upload a background and press Preview</span>
+          <span>Upload a background in the Export tab,<br />then press Play</span>
         </div>
       </div>
-    </main>
+      <div id="previewControls">
+        <button id="btnPreview" class="btn-play-main">▶ Play</button>
+        <button id="btnStop"    class="btn-play-main btn-play-stop" hidden>■ Stop</button>
+      </div>
+    </div>
+
+    <!-- ── Export Tab ── -->
+    <div id="tabExport" class="tab-panel">
+      <div class="export-scroll">
+
+        <p class="export-title">iMessage Overlay</p>
+
+        <!-- Background -->
+        <section class="control-group">
+          <label class="control-label">Background</label>
+          <div class="bg-type-tabs">
+            <label class="bg-tab active" id="bgTabVideo">
+              <input type="radio" name="bgType" value="video" checked /> Video
+            </label>
+            <label class="bg-tab" id="bgTabImage">
+              <input type="radio" name="bgType" value="image" /> Image
+            </label>
+          </div>
+          <div id="videoUploadWrap">
+            <input type="file" id="videoUpload" accept="video/*" />
+          </div>
+          <div id="imageUploadWrap" class="hidden">
+            <input type="file" id="imageUpload" accept="image/*" />
+            <label class="toggle-row" style="margin-top:6px;">
+              <input type="checkbox" id="kenBurns" />
+              Ken Burns Effect
+            </label>
+            <div id="kenBurnsOptions" class="sub-options hidden">
+              <label for="kbZoom">Zoom</label>
+              <select id="kbZoom">
+                <option value="in">In</option>
+                <option value="out">Out</option>
+              </select>
+              <label for="kbPan">Pan</label>
+              <select id="kbPan">
+                <option value="none">None</option>
+                <option value="right">Right</option>
+                <option value="left">Left</option>
+                <option value="down">Down</option>
+                <option value="up">Up</option>
+              </select>
+            </div>
+            <label class="setting-row-label" for="imageDuration" style="margin-top:6px;">Duration (seconds)</label>
+            <input type="number" id="imageDuration" min="1" max="600" step="1" value="30" />
+          </div>
+          <p class="hint">Auto-cropped to 9:16.</p>
+        </section>
+
+        <!-- Settings dropdown -->
+        <section class="control-group settings-section">
+          <button id="settingsToggle" class="settings-toggle">
+            <span>⚙ Settings</span>
+            <span id="settingsChevron" class="chevron">▼</span>
+          </button>
+          <div id="settingsBody" class="settings-body hidden">
+
+            <div class="setting-group">
+              <div class="setting-group-title">Video</div>
+              <label class="setting-row-label">Black overlay <span id="scrimOpacityValue">0%</span></label>
+              <input type="range" id="scrimOpacity" min="0" max="100" value="0" />
+              <label class="setting-row-label">Background audio <span id="bgVolumeValue">50%</span></label>
+              <input type="range" id="bgVolume" min="0" max="100" value="50" />
+            </div>
+
+            <div class="setting-group">
+              <div class="setting-group-title">Timing</div>
+              <label class="setting-row-label" for="initialDelay">Initial delay (seconds)</label>
+              <input type="number" id="initialDelay" min="0" max="30" step="0.5" value="0" />
+            </div>
+
+            <div class="setting-group">
+              <div class="setting-group-title">Header</div>
+              <label class="toggle-row">
+                <input type="checkbox" id="showHeader" checked />
+                Show status bar &amp; nav bar
+              </label>
+              <div id="headerOptions" class="sub-options">
+                <label for="contactName">Contact name</label>
+                <input type="text" id="contactName" placeholder="John" />
+                <label for="statusTime">Status bar time</label>
+                <input type="text" id="statusTime" placeholder="9:41" maxlength="5" />
+                <p class="hint">Leave blank to use current time.</p>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <div class="setting-group-title">Counterparty</div>
+              <label class="toggle-row">
+                <input type="checkbox" id="showCounterparty" />
+                Show avatar &amp; name
+              </label>
+              <div id="counterpartyOptions" class="sub-options hidden">
+                <label for="counterpartyInitials">Initials</label>
+                <input type="text" id="counterpartyInitials" maxlength="2" placeholder="JD" />
+                <label for="counterpartyName">Nickname</label>
+                <input type="text" id="counterpartyName" placeholder="John" />
+                <label for="counterpartyColor">Avatar color</label>
+                <input type="color" id="counterpartyColor" value="#34C759" />
+                <label for="cpAvatarImage">Avatar image (optional)</label>
+                <input type="file" id="cpAvatarImage" accept="image/*" />
+                <p class="hint">Overrides initials &amp; color when set.</p>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- Export action -->
+        <section class="control-group actions">
+          <button id="btnExport" class="btn-primary" disabled>⬇ Export MP4</button>
+        </section>
+
+        <!-- Export progress -->
+        <section id="exportStatus" class="hidden">
+          <progress id="exportProgress" value="0" max="100"></progress>
+          <span id="exportLabel">Exporting…</span>
+        </section>
+
+      </div>
+    </div>
+
+    <!-- ── Bottom / side tab bar ── -->
+    <nav id="tabBar">
+      <button class="tab-btn active" data-tab="tabBuild">
+        <span class="tab-icon">💬</span>
+        <span class="tab-label">Build</span>
+      </button>
+      <button class="tab-btn" data-tab="tabPreview">
+        <span class="tab-icon">▶</span>
+        <span class="tab-label">Preview</span>
+      </button>
+      <button class="tab-btn" data-tab="tabExport">
+        <span class="tab-icon">⬇</span>
+        <span class="tab-label">Export</span>
+      </button>
+    </nav>
 
   </div>
 
